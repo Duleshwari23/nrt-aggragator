@@ -1,0 +1,469 @@
+# Default values for mirador-core.
+
+replicaCount: 3
+
+image:
+  repository: platformbuilds/mirador-core
+  # Use a multi-arch tag (linux/amd64 + linux/arm64) so nodes pull the correct architecture automatically
+  tag: v3.0.0
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+  clusterWide: true
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8010"
+  prometheus.io/path: "/metrics"
+
+# Optional additional Pod labels
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  ports:
+    http:
+      port: 8010
+      targetPort: http-api
+    grpc:
+      port: 9090
+      targetPort: grpc
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: mirador-core.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+nodeSelector: {}
+affinity: {}
+tolerations: []
+
+# Optional topology spread constraints
+topologySpreadConstraints: []
+
+# Optional priority class
+priorityClassName: ""
+
+# Pod lifecycle tuning
+terminationGracePeriodSeconds: 30
+revisionHistoryLimit: 3
+
+env:
+  - name: CONFIG_PATH
+    value: /etc/mirador/config.yaml
+  - name: ENVIRONMENT
+    value: production
+  # Add any extra env vars by appending list items below, e.g.:
+  # - name: FOO
+  #   value: bar
+
+# Optional extra environment variables (rendered after `env` items)
+extraEnv: []
+
+# Optional sidecars and extra volumes
+extraContainers: []
+extraVolumeMounts: []
+extraVolumes: []
+
+
+# Init waiters for dependent services
+waitFor:
+  valkey:
+    enabled: false # default disabled to avoid pulling extra images
+    # Image providing redis-cli to probe Valkey readiness
+    image:
+      repository: bitnami/redis
+      tag: "7.2.5-debian-12-r0"
+      pullPolicy: IfNotPresent
+    # Max seconds to wait before giving up (pod will restart per restartPolicy)
+    timeoutSeconds: 120
+    # Seconds between checks
+    intervalSeconds: 5
+
+envFrom: [] # e.g., [{ secretRef: { name: my-secrets } }]
+
+# Optional: create an application Secret with common credentials that MIRADOR-CORE
+# expects as environment variables. If you already manage secrets, keep create=false
+# and reference them via `envFrom` above.
+secrets:
+  create: false
+  name: "" # defaults to <release>-mirador-env when create=true
+  data:
+    # Keys consumed by MIRADOR-CORE (see internal/config/secrets.go):
+    # JWT_SECRET, LDAP_PASSWORD, SMTP_PASSWORD, REDIS_PASSWORD, VM_PASSWORD
+    JWT_SECRET: ""
+    LDAP_PASSWORD: ""
+    SMTP_PASSWORD: ""
+    REDIS_PASSWORD: ""
+    VM_PASSWORD: ""
+
+config:
+  enabled: true
+  # If you already manage a ConfigMap with the configuration, set the name here
+  existingConfigMap: ""
+
+# Native YAML for /etc/mirador/config.yaml.
+mirador:
+  environment: production
+  log_level: info
+  port: 8010
+  uploads:
+    # Maximum size (in bytes) for CSV bulk uploads (services/operations/metrics/logs)
+    # Defaults to 5 MiB when omitted.
+    bulk_max_bytes: 5242880
+
+  database:
+    victoria_metrics:
+      # Optional friendly name for the primary source
+      name: "primary"
+      endpoints:
+        - "http://vm-select-0.vm-select:8481"
+        - "http://vm-select-1.vm-select:8481"
+      timeout: 30000
+    # Optional: additional metrics sources for aggregation
+    # Each entry supports the same fields as victoria_metrics (name, endpoints, timeout, username, password, discovery)
+    metrics_sources: []
+    victoria_logs:
+      # Optional friendly name for the primary logs source
+      name: "primary"
+      endpoints:
+        - "http://vl-select-0.vl-select:9428"
+        - "http://vl-select-1.vl-select:9428"
+      timeout: 30000
+    # Optional: additional logs sources for aggregation
+    # Each entry supports the same fields as victoria_logs (name, endpoints, timeout, username, password, discovery)
+    logs_sources: []
+    victoria_traces:
+      # Optional friendly name for the primary traces source
+      name: "primary"
+      endpoints:
+        - "http://vt-select-0.vt-select:10428"
+        - "http://vt-select-1.vt-select:10428"
+      timeout: 30000
+    # Optional: additional traces sources for aggregation
+    # Each entry supports the same fields as victoria_traces (name, endpoints, timeout, username, password, discovery)
+    traces_sources: []
+
+  grpc:
+    predict_engine:
+      endpoint: "predict-engine.mirador:9091"
+      models: ["isolation_forest", "lstm_trend", "anomaly_detector"]
+      timeout: 30000
+    rca_engine:
+      endpoint: "rca-engine.mirador:9092"
+      correlation_threshold: 0.85
+      timeout: 30000
+    alert_engine:
+      endpoint: "alert-engine.mirador:9093"
+      rules_path: "/etc/mirador/alert-rules.yaml"
+      timeout: 30000
+
+  auth:
+    enabled: true
+    ldap:
+      url: "ldap://ldap.company.com"
+      base_dn: "dc=company,dc=com"
+    rbac:
+      enabled: true
+      admin_role: "mirador-admin"
+
+  cache:
+    # Cache nodes for Valkey/Redis. Leave empty when using the embedded Bitnami
+    # Valkey subchart (valkey.enabled=true); the chart will auto-wire the
+    # headless service ("<release>-valkey-headless:6379") into the rendered config.
+    # Otherwise, specify your external Valkey/Redis endpoints here.
+    nodes: []
+    ttl: 300
+
+  search:
+    # Search engine configuration
+    default_engine: "lucene"  # Default search engine (lucene or bleve)
+    enable_bleve: true        # Enable Bleve search engine
+    enable_lucene: true       # Enable Lucene search engine
+    
+    # Query result caching configuration
+    query_cache:
+      enabled: true           # Enable query result caching
+      ttl: 1800               # Cache TTL in seconds (30 minutes)
+    
+    # Bleve-specific configuration
+    bleve:
+      logs_enabled: true      # Enable Bleve for logs search
+      traces_enabled: true    # Enable Bleve for traces search
+      metrics_enabled: false  # Enable Bleve for metrics search (future)
+      index_path: "/var/lib/mirador/bleve"  # Disk path for Bleve indexes
+      batch_size: 1000        # Batch size for index operations
+      max_memory_mb: 512      # Maximum memory usage in MB
+      
+      # Memory optimization settings
+      memory_optimization:
+        object_pooling: true  # Enable object pooling for documents
+        adaptive_cache: true  # Enable adaptive cache sizing
+      
+      # Storage configuration
+      storage:
+        memory_cache_ratio: 0.5  # Memory cache ratio (0.0-1.0)
+        disk_cache_ratio: 0.5    # Disk cache ratio (0.0-1.0)
+        max_concurrent_queries: 50  # Maximum concurrent queries
+
+  # Weaviate connection for schema/semantic features (migration target)
+  weaviate:
+    enabled: false
+    scheme: http
+    host: weaviate.mirador.svc.cluster.local
+    port: 8080
+    api_key: ""
+    use_official: false
+
+# Bleve storage configuration
+bleveStorage:
+  enabled: true
+  size: "50Gi"
+  storageClassName: ""  # Use default storage class if empty
+  accessModes:
+    - ReadWriteOnce
+
+alertRules:
+  enabled: true
+  # Set to use an existing ConfigMap with alert-rules.yaml key
+  existingConfigMap: ""
+  content: |
+    # example alert rules file
+  groups: []
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  # targetMemoryUtilizationPercentage: 80
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# NetworkPolicy
+networkPolicy:
+  enabled: false
+  # When enabled, by default allow ingress from same namespace
+  # and egress to kube-dns. Customize as needed below.
+  ingress:
+    from:
+      - namespaceSelector: {}
+        podSelector: {}
+  egress:
+    to:
+      # kube-dns in kube-system
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+        podSelector:
+          matchLabels:
+            k8s-app: kube-dns
+    ports:
+      - protocol: UDP
+        port: 53
+      - protocol: TCP
+        port: 53
+
+# Prometheus ServiceMonitor
+serviceMonitor:
+  enabled: false
+  namespace: ""
+  interval: 30s
+  scrapeTimeout: 10s
+  additionalLabels: {}
+  honorLabels: false
+  relabelings: []
+  metricRelabelings: []
+
+# PrometheusRule
+prometheusRule:
+  enabled: false
+  additionalLabels: {}
+  groups: []
+
+# Kubernetes Service Discovery for VM/VL/VT
+discovery:
+  vm:
+    enabled: false
+    service: "vm-select.vm-select.svc.cluster.local"
+    port: 8481
+    scheme: http
+    refreshSeconds: 30
+    useSRV: false
+  vl:
+    enabled: false
+    service: "vl-select.vl-select.svc.cluster.local"
+    port: 9428
+    scheme: http
+    refreshSeconds: 30
+    useSRV: false
+  vt:
+    enabled: false
+    service: "vt-select.vt-select.svc.cluster.local"
+    port: 10428
+    scheme: http
+    refreshSeconds: 30
+    useSRV: false
+
+# Bitnami Valkey subchart configuration
+valkey:
+  enabled: true
+  version: "^2.0.0"
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false
+    service:
+      type: LoadBalancer  # Expose metrics externally
+  # serviceName: my-valkey
+  # headlessServiceName: my-valkey-headless
+  # Image overrides for the Bitnami Valkey subchart. Leave commented to use
+  # the subchart defaults. Uncomment to pin a custom image/repository/tag.
+  # image:
+  #   registry: docker.io
+  #   repository: bitnami/valkey
+  #   tag: "8.0.x"
+  #   # Recommended: pin to a digest to satisfy Bitnami security checks
+  #   # and avoid needing global.security.allowInsecureImages=true
+  #   digest: "sha256:<oci-image-digest>"
+  #   pullPolicy: IfNotPresent
+  #   # pullSecrets:
+  #   #   - myRegistrySecret
+  # Scope Bitnami "global" settings to the Valkey subchart only. This avoids
+  # affecting other Bitnami charts you may add later. Default keeps images
+  # strict (false). Set to true only if you override image without a digest.
+  global:
+    security:
+      allowInsecureImages: false
+  architecture: standalone # set to 'replication' for production
+  auth:
+    enabled: false
+    # existingSecret: my-valkey-secret
+    # password: ""
+    # secretName: "" # defaults to <release>-valkey
+    # passwordKey: "valkey-password" # default key in the subchart secret
+  replica:
+    replicaCount: 1
+    persistence:
+      enabled: true
+  primary:
+    persistence:
+      enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    path: /ready
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 3
+  startup:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 10
+# Global values passed to subcharts (e.g., Bitnami)
+# Note: Bitnami charts may enforce image provenance. When using custom images
+# without a digest, you can opt-in to allow them by setting this to true.
+# global:
+#   security:
+#     allowInsecureImages: true
+
+    periodSeconds: 2
+    timeoutSeconds: 5
+    failureThreshold: 30
+global:
+  # Optional: set a global registry prefix for all images (e.g., your internal mirror)
+  # Examples: "my-registry.local:5000"
+  imageRegistry: ""
+  # Optional: global imagePullSecrets applied by subcharts that support it
+  imagePullSecrets: []
+  enabled: false
+
+# Weaviate vector database (subchart)
+weaviate:
+  enabled: true
+  image:
+    repository: cr.weaviate.io/semitechnologies/weaviate
+    tag: 1.25.4
+    pullPolicy: IfNotPresent
+  replicas: 1
+  service:
+    type: LoadBalancer  # Expose metrics externally
+    port: 8080
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: standard
+  # Comma-separated module list, e.g. "text2vec-openai,bm25,generative-openai"
+  enableModules: "bm25"
+  # Optional provider API keys (mounted as env)
+  apiKeys:
+    openai: ""
+    cohere: ""
+    huggingface: ""
+  env:
+    # Allow anonymous by default in-cluster; tighten in prod
+    AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+    DEFAULT_VECTORIZER_MODULE: "none" # use BYO vectors by default; set text2vec-* to auto-embed
+    PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+    QUERY_DEFAULTS_LIMIT: "25"
+    CLUSTER_GOSSIP_BIND_PORT: "7100"
+    CLUSTER_DATA_BIND_PORT: "7101"
+    GOMAXPROCS: "0"
