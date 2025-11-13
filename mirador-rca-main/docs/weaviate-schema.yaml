@@ -1,0 +1,105 @@
+# Weaviate Schema for mirador-rca
+
+classes:
+  - name: CorrelationRecord
+    description: Historical RCA results for tenant investigations.
+    multi_tenant: true
+    properties:
+      - name: correlationId
+        dataType: [text]
+      - name: incidentId
+        dataType: [text]
+      - name: tenantId
+        dataType: [text]
+      - name: rootCause
+        dataType: [text]
+      - name: confidence
+        dataType: [number]
+      - name: affectedServices
+        dataType: [text]
+      - name: recommendations
+        dataType: [text]
+      - name: createdAt
+        dataType: [date]
+      - name: redAnchors
+        dataType: [object]
+        nestedProperties:
+          - name: service
+            dataType: [text]
+          - name: selector
+            dataType: [text]
+          - name: dataType
+            dataType: [text]
+          - name: timestamp
+            dataType: [date]
+          - name: anomalyScore
+            dataType: [number]
+          - name: threshold
+            dataType: [number]
+      - name: timeline
+        dataType: [object]
+        nestedProperties:
+          - name: time
+            dataType: [date]
+          - name: event
+            dataType: [text]
+          - name: service
+            dataType: [text]
+          - name: severity
+            dataType: [text]
+          - name: anomalyScore
+            dataType: [number]
+          - name: dataSource
+            dataType: [text]
+
+  - name: FailurePattern
+    description: Stored failure patterns mined from historical correlations.
+    multi_tenant: true
+    properties:
+      - name: patternId
+        dataType: [text]
+      - name: name
+        dataType: [text]
+      - name: description
+        dataType: [text]
+      - name: services
+        dataType: [text]
+      - name: prevalence
+        dataType: [number]
+      - name: lastSeen
+        dataType: [date]
+      - name: quality
+        dataType: [object]
+        nestedProperties:
+          - name: precision
+            dataType: [number]
+          - name: recall
+            dataType: [number]
+      - name: anchorTemplates
+        dataType: [object]
+        nestedProperties:
+          - name: service
+            dataType: [text]
+          - name: signalType
+            dataType: [text]
+          - name: selector
+            dataType: [text]
+          - name: typicalLeadLag
+            dataType: [number]
+          - name: threshold
+            dataType: [number]
+
+  - name: CorrelationFeedback
+    description: Analyst feedback on correlation accuracy.
+    multi_tenant: true
+    properties:
+      - name: correlationId
+        dataType: [text]
+      - name: tenantId
+        dataType: [text]
+      - name: correct
+        dataType: [boolean]
+      - name: notes
+        dataType: [text]
+      - name: submittedAt
+        dataType: [date]

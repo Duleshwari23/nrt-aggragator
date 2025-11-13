@@ -1,0 +1,58 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+  isolationforest:
+    forest_size: 100
+    subsample_size: 256
+    contamination_rate: 0.10
+
+connectors:
+  spanmetrics:
+    histogram:
+      explicit:
+        buckets: [100us, 1ms, 2ms, 6ms, 10ms, 100ms, 250ms]
+    aggregation_cardinality_limit: 1000
+    aggregation_temporality: "AGGREGATION_TEMPORALITY_CUMULATIVE"
+    metrics_flush_interval: 15s
+  servicegraph:
+    store:
+      ttl: 2s
+      max_items: 1000
+
+exporters:
+  debug:
+    verbosity: detailed
+
+  prometheusremotewrite:
+    endpoint: http://victoriametrics:8428/api/v1/write
+
+  elasticsearch:
+    endpoint: http://victorialogs:9428/insert/elasticsearch
+    headers:
+      VL-Msg-Field: Body
+
+  otlphttp:
+    traces_endpoint: http://victoriatraces:10428/insert/opentelemetry/v1/traces
+
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp, spanmetrics, servicegraph]
+      processors: [isolationforest]
+      exporters: [prometheusremotewrite, debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [elasticsearch, debug]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [spanmetrics, servicegraph, otlphttp, debug]

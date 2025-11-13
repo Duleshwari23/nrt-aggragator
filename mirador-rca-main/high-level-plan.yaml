@@ -1,0 +1,333 @@
+project: mirador-rca
+version: 0.1
+owner:
+  org: Platformbuilds.
+  team: miradorstack
+  tech_architect: "@aarvee11"
+goals:
+  - Automated, multi-signal Root-Cause Analysis (metrics, logs, traces).
+  - gRPC service consumed by mirador-core for /rca/* flows.
+  - Store correlations & patterns for semantic recall (Weaviate) and audit (VictoriaLogs via core).
+non_goals:
+  - UI development (handled by mirador-ui).
+  - Ingestion pipeline (existing otel-signals-pipeline).
+  - New storage engines beyond Victoria*/Weaviate.
+
+scope:
+  features:
+    - investigate_incident: Produce root cause, confidence, red anchors, timeline, recommendations.
+    - list_correlations: Recent/history feed with filters (service, time range).
+    - get_patterns: Known failure patterns + prevalence and lastSeen.
+    - feedback_loop: Accept correctness/notes; update pattern quality & recs.
+    - pattern_mining: Mine anchor combos & sequences from historical correlations.
+    - semantic_recall: Nearest-neighbor queries against Weaviate objects.
+    - multi_tenancy: Tenant isolation end-to-end.
+    - observability: OTel traces/metrics/logs for all stages.
+  integrations:
+    - victoria_metrics: read MetricsQL windows.
+    - victoria_logs: read LogsQL windows.
+    - victoria_traces: read trace graph & spans (Jaeger-compatible).
+    - weaviate: read/write patterns, incident synopses, correlations.
+    - otel_servicegraph: ingest service graph metrics via mirador-core proxy (servicegraphconnector).
+    - valkey: optional cache + rate-limit counters.
+out_of_scope:
+  - Direct persistence to VictoriaLogs (handled by mirador-core /rca/store).
+
+architecture:
+  language: go
+  style: gRPC microservice
+  processes:
+    - api_gateway: validates inputs, orchestrates pipelines, maps proto↔domain.
+    - feature_extractors: metrics/logs/traces anomaly extraction.
+    - correlation_engine: candidate generation + ranking.
+    - causality_engine: validate directionality (granger-lite/graph timing).
+    - pattern_miner: offline/triggered job to mine FailurePattern.
+    - recommender: rules-based initial playbooks, feedback-tuned later.
+  dependencies:
+    - mirador-core >= v4.0.0
+    - weaviate >= 1.24 (multi-tenancy enabled)
+    - victoria_stack: metrics/logs/traces endpoints reachable
+    - otel collector servicegraphconnector deployed and scraping traces
+    - valkey cluster (optional)
+
+interfaces:
+  grpc:
+    package: rca.v1
+    service: RCAEngine
+    rpcs:
+      - name: InvestigateIncident
+        request: RCAInvestigationRequest
+        response: CorrelationResult
+      - name: ListCorrelations
+        request: ListCorrelationsRequest
+        response: ListCorrelationsResponse
+      - name: GetPatterns
+        request: GetPatternsRequest
+        response: GetPatternsResponse
+      - name: SubmitFeedback
+        request: FeedbackRequest
+        response: FeedbackAck
+      - name: HealthCheck
+        request: HealthRequest
+        response: HealthResponse
+  contracts:
+    RCAInvestigationRequest:
+      fields:
+        incident_id: string (required)
+        symptoms: array<string> (required)
+        time_range: { start: RFC3339, end: RFC3339 } (required)
+        affected_services: array<string> (optional)
+        anomaly_threshold: float (optional)
+        tenant_id: string (propagated from core, not in REST body)
+    CorrelationResult:
+      fields:
+        correlation_id: string
+        incident_id: string
+        root_cause: string
+        confidence: float
+        affected_services: array<string>
+        red_anchors: array<RedAnchor>
+        timeline: array<TimelineEvent>
+        recommendations: array<string>
+        created_at: RFC3339
+    RedAnchor:
+      fields:
+        service: string
+        selector: string # metric name | log signature | span op
+        data_type: enum[metrics,logs,traces]
+        timestamp: RFC3339
+        anomaly_score: float
+        threshold: float
+    TimelineEvent:
+      fields:
+        time: RFC3339
+        event: string
+        service: string
+        severity: enum[low,medium,high,critical]
+        anomaly_score: float
+        data_source: enum[metrics,logs,traces]
+    Pattern:
+      fields:
+        id: string
+        name: string
+        description: string
+        services: array<string>
+        anchor_templates: array<AnchorTemplate>
+        prevalence: float
+        last_seen: RFC3339
+        quality: { precision: float, recall: float }
+        embedding_id: string
+  rest_via_core:
+    - /api/v1/rca/investigate -> calls gRPC InvestigateIncident
+    - /api/v1/rca/correlations -> calls gRPC ListCorrelations
+    - /api/v1/rca/patterns -> calls gRPC GetPatterns
+    - /api/v1/rca/store -> handled by core (writes to VictoriaLogs)
+
+data_model:
+  weaviate:
+    multi_tenant: true
+    classes:
+      - IncidentSynopsis:
+          props: [incidentId, timeStart, timeEnd, symptoms[], services[], summaryText, tenantId, embedding]
+      - CorrelationRecord:
+          props: [correlationId, incidentId, rootCause, confidence, redAnchors[], timeline[], recommendations[], createdAt, tenantId]
+      - FailurePattern:
+          props: [patternId, name, description, services[], anchorTemplates[], prevalence, lastSeen, quality.precision, quality.recall, tenantId, embedding]
+      - AnchorTemplate:
+          props: [service, signalType, selector, typicalLeadLag, thresholds, tenantId]
+      - AnomalyEvent:
+          props: [time, service, signalType, score, summary, refs, tenantId, embedding]
+
+algorithms:
+  anomaly_detection:
+    metrics: "STL + generalized ESD; IsolationForest on window features"
+    logs: "signature clustering (Drain) + spike detection; TF-IDF/miniLM embeddings"
+    traces: "critical-path outliers, error/latency spikes, service graph edge deltas"
+  candidate_generation:
+    - overlap anomalies within window by service
+    - expand 1 hop upstream/downstream via trace graph
+    - top-k anomalies per service become red-anchor candidates
+  ranking_score:
+    formula: "w1*AnomalyStrength + w2*TemporalLead + w3*GraphCentrality + w4*PatternSimilarity + w5*SourceAgreement"
+  causality_validation:
+    methods: ["granger-lite on detrended pairs", "graph-timing precedence from traces"]
+  recommendations:
+    type: "rules-based v1; map (rootCause, pattern) -> playbook steps"
+
+configuration:
+  env:
+    VICTORIA_METRICS_URLS: "http://vmselect:8481;http://vmselect2:8481"
+    VICTORIA_LOGS_URLS: "http://victorialogs:9428"
+    VICTORIA_TRACES_URL: "http://victoriatraces:16686"
+    WEAVIATE_URL: "http://weaviate:8080"
+    MIRADOR_CORE_SERVICE_GRAPH_PATH: "/api/v1/rca/service-graph"
+    WEAVIATE_API_KEY: "..."
+    VALKEY_NODES: "valkey-0:6379,valkey-1:6379"
+    ENABLE_CAUSALITY: "true"
+    ENABLE_PATTERN_MINER: "true"
+    MAX_WINDOW_MINUTES: "60"
+    MAX_SERIES: "2000"
+    MAX_LOG_LINES: "50000"
+    TOP_K_CANDIDATES: "10"
+    OTL_EXPORTER: "otlphttp://otel-collector:4318"
+  security:
+    mTLS_core_rca: optional
+    tenant_propagation: "via metadata: x-tenant-id"
+    rbac: "service account only; no direct public exposure"
+
+environments:
+  dev:
+    compose: ["weaviate", "victoria*", "valkey", "otel-collector"]
+    seeds: ["sample incidents", "rt-aggregator demo anomalies"]
+  staging:
+    data_subset: "synthetic + anonymized"
+  prod:
+    scaling: "HPA on CPU & QPS; 2–3 replicas min"
+
+observability:
+  otel:
+    traces: true
+    metrics: true
+    logs: true
+  prometheus_metrics:
+    - rca_investigations_total{tenant}
+    - rca_investigation_latency_seconds
+    - rca_candidates_total{stage}
+    - rca_errors_total{stage}
+    - rca_pattern_hits_total
+  dashboards:
+    - investigation-latency
+    - source-fanout
+    - candidate-funnel
+    - error-budget
+
+testing:
+  unit:
+    - time-series anomaly detectors
+    - log signature clustering
+    - ranker scoring
+  integration:
+    - testcontainers: weaviate + victoria*
+    - golden outputs for InvestigateIncident
+  e2e:
+    - run via mirador-core /rca/investigate against seeded data
+  performance:
+    targets:
+      p95_15m_window_sec: 3
+      p95_60m_window_sec: 8
+    datasets: ["low", "medium", "high"]
+  validation:
+    acceptance_checks:
+      - root_cause_returned: true
+      - min_red_anchors: 3
+      - recommendations_nonempty: true
+      - multi_tenant_isolation: true
+
+work_breakdown:
+  phase_1_foundation:
+    duration_days: 10
+    deliverables:
+      - grpc_service_scaffold
+      - healthcheck
+      - metrics/logs/traces clients
+      - investigate_incident(v1): anomalies+ranking
+      - weaviate read NN hooks (prior incidents)
+    tasks:
+      - proto authoring & codegen
+      - API gateway with validation
+      - metrics extractor (STL+ESD)
+      - logs extractor (spike + signature)
+      - traces graph loader + simple outliers
+      - ranker v1 + result mapping to CorrelationResult
+    exit_criteria:
+      - mirador-core /rca/investigate returns v1 result
+      - p95 ≤ 4s on 15m window (dev data)
+  phase_2_patterns_history:
+    duration_days: 8
+    deliverables:
+      - list_correlations
+      - get_patterns
+      - pattern_miner(v1) offline job
+      - recommender(v1) rules
+    tasks:
+      - weaviate classes + persistence
+      - NN search + filters
+      - FP-growth + prefix-span miners
+    exit_criteria:
+      - patterns show prevalence & lastSeen
+      - correlations feed filterable by service/time
+  phase_3_causality_quality:
+    duration_days: 10
+    deliverables:
+      - causality_validation
+      - confidence calibration
+      - feedback endpoint + storage
+    tasks:
+      - granger-lite module
+      - trace timing precedence checks
+      - feedback storage in weaviate
+    exit_criteria:
+      - measurable lift in precision@1 on test incidents
+  phase_4_ops_scaling:
+    duration_days: 6
+    deliverables:
+      - valkey caching
+      - k8s helm chart + HPA
+      - alerts + dashboards
+      - Makefile parity with mirador-core
+      - CI workflows (govulncheck + code quality)
+    tasks:
+      - cache hot NN lookups & schema reads
+      - helm values for endpoints/secrets
+      - SLOs + alert rules
+    exit_criteria:
+      - p95 targets met under medium load
+      - zero-downtime rolling deploy validated
+
+release_plan:
+  versions:
+    - v0.1.0: InvestigateIncident MVP, core integration
+    - v0.2.0: Patterns + Correlations + Recommender
+    - v0.3.0: Causality + Feedback
+    - v1.0.0: Scale/ops, SLO-backed
+  rollout:
+    - staging canary via mirador-core flag
+    - progressive traffic ramp (10% → 50% → 100%)
+
+risks:
+  - name: data_volume_spikes
+    impact: medium
+    mitigation: "cap series/logs; adaptive sampling; caching"
+  - name: weak_signal_alignment
+    impact: medium
+    mitigation: "expand window, lead/lag scan, graph priors"
+  - name: weaviate_latency
+    impact: low
+    mitigation: "HTTP timeouts, circuit breaker, cache"
+  - name: multi_tenancy_leak
+    impact: high
+    mitigation: "metadata enforcement, tests, audits"
+
+acceptance_criteria_v1:
+  - core_endpoints_covered: [/rca/investigate, /rca/correlations, /rca/patterns]
+  - /rca/investigate_fields_present: [root_cause, confidence, >=3 red_anchors, timeline, recommendations]
+  - multi_tenant_enforced: true
+  - weaviate_objects_queryable: [CorrelationRecord, FailurePattern]
+  - performance_p95_sec:
+      investigate_15m: 3
+      investigate_60m: 8
+
+deliverables:
+  - repo: github.com/platformbuilds/mirador-rca
+  - code:
+      - cmd/rca-engine/main.go
+      - internal/api (grpc)
+      - internal/extractors/{metrics,logs,traces}
+      - internal/engine/{correlate,causality,rank}
+      - internal/patterns/{miner,repo}
+      - pkg/clients/{weaviate,vm,vl,vt}
+  - helm_chart: charts/mirador-rca
+  - docs:
+      - ADRs for algorithms & data model
+      - runbooks & SLOs
+      - API reference (protobuf + markdown)

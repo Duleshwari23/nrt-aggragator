@@ -1,0 +1,40 @@
+server:
+  address: ":50051"
+  metricsAddress: ":2112"
+  gracefulTimeout: 10s
+
+clients:
+  core:
+    baseURL: "https://mirador-core.internal"
+    metricsPath: "/api/v1/rca/metrics"
+    logsPath: "/api/v1/rca/logs"
+    tracesPath: "/api/v1/rca/traces"
+    serviceGraphPath: "/api/v1/rca/service-graph"
+    timeout: 5s
+
+weaviate:
+  endpoint: "https://weaviate.cluster.internal"
+  apiKey: "${WEAVIATE_API_KEY}"
+  timeout: 5s
+
+cache:
+  enabled: false
+  addr: "valkey.mirador.svc.cluster.local:6379"
+  username: ""
+  password: ""
+  db: 0
+  dialTimeout: 2s
+  readTimeout: 500ms
+  writeTimeout: 500ms
+  similarIncidentsTTL: 2m
+  patternsTTL: 10m
+  serviceGraphTTL: 5m
+  maxRetries: 2
+  tls: false
+
+logging:
+  level: "info"
+  json: false
+
+rules:
+  path: "configs/rules/default.yaml"

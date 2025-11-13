@@ -1,0 +1,130 @@
+# Development Environment Configuration
+environment: development
+port: 8010
+log_level: debug
+
+database:
+  victoria_metrics:
+    endpoints:
+      - "http://miradorserver_victoriametrics_1:8428"
+    timeout: 10000
+  victoria_logs:
+    endpoints:
+      - "http://miradorserver_victorialogs_1:9428"
+    timeout: 10000
+  victoria_traces:
+    endpoints:
+      - "http://miradorserver_victoriatraces_1:10428"
+    timeout: 10000
+
+grpc:
+  predict_engine:
+    endpoint: "127.0.0.1:9091"
+    models: ["isolation_forest", "lstm_trend"]
+    timeout: 10000
+  rca_engine:
+    endpoint: "127.0.0.1:8020"
+    correlation_threshold: 0.8
+    timeout: 10000
+  alert_engine:
+    endpoint: "127.0.0.1:9093"
+    timeout: 10000
+
+auth:
+  ldap:
+    enabled: false
+  oauth:
+    enabled: false
+  rbac:
+    enabled: true
+    admin_role: "admin"
+  jwt:
+    expiry_minutes: 480 # 8 hours for development
+
+cache:
+  nodes:
+    - "valkey:6379"
+  ttl: 60 # Shorter TTL for development
+
+cors:
+  allowed_origins:
+    - "http://localhost:3000"
+    - "http://localhost:3001"
+    - "http://127.0.0.1:3000"
+
+integrations:
+  slack:
+    enabled: false
+  ms_teams:
+    enabled: false
+  email:
+    enabled: false
+
+websocket:
+  enabled: true
+  max_connections: 100
+  ping_interval: 10
+
+monitoring:
+  enabled: true
+  prometheus_enabled: true
+  tracing_enabled: true
+
+# Search Engine Configuration
+search:
+  default_engine: "lucene"
+  enable_bleve: true
+  enable_lucene: true
+  query_cache:
+    enabled: true
+    ttl: 1800
+  bleve:
+    logs_enabled: true
+    traces_enabled: true
+    metrics_enabled: true
+    index_path: "/var/lib/mirador/bleve"
+    batch_size: 1000
+    max_memory_mb: 256  # Lower for development
+    memory_optimization:
+      object_pooling: true
+      adaptive_cache: true
+    storage:
+      memory_cache_ratio: 0.5
+      disk_cache_ratio: 0.5
+    max_concurrent_queries: 10  # Lower for development
+    metrics_sync:
+      enabled: true
+      strategy: "incremental"
+      interval: 5m  # More frequent for development
+      full_sync_interval: 1h
+      batch_size: 500  # Smaller batches for development
+      max_retries: 3
+      retry_delay: 10s
+      time_range_lookback: 30m  # Shorter lookback for development
+      shard_count: 2  # Fewer shards for development
+
+# Unified Query Engine Configuration (Phase 1.5)
+unified_query:
+  enabled: true
+  cache_ttl: 1m  # Shorter for development
+  max_cache_ttl: 10m
+  default_limit: 100
+  enable_correlation: true  # Enable correlation in development
+
+uploads:
+  # Configurable bulk CSV upload limit (bytes). Default is 5 MiB if omitted.
+  bulk_max_bytes: 5242880
+
+# Schema Store Configuration (Weaviate)
+weaviate:
+  enabled: true
+  scheme: "http"
+  host: "weaviate"
+  port: 8080
+  api_key: "" # Set via environment variable
+  consistency: "quorum"
+  use_official: true
+  nested_keys:
+    - "tags"
+    - "examples"
+    - "allowed_values"

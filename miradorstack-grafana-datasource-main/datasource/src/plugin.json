@@ -1,0 +1,45 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "datasource",
+  "name": "Miradorstack-Datasource",
+  "id": "platformbuilds-miradorstack-datasource",
+  "backend": false,
+  "metrics": true,
+  "info": {
+    "description": "Grafana datasource plugin for MiradorStack unified queries. Connects to Mirador Core API for logs, metrics, and traces visualization.",
+    "author": {
+      "name": "Platformbuilds",
+      "email": "info@platformbuilds.com",
+      "url": "https://platformbuilds.com"
+    },
+    "keywords": ["datasource", "miradorstack", "mirador", "logs", "metrics", "traces", "observability", "unified-query"],
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "links": [
+      {
+        "name": "Documentation",
+        "url": "https://github.com/platformbuilds/miradorstack/blob/main/miradorstack-grafana-datasource/README.md"
+      },
+      {
+        "name": "GitHub Repository", 
+        "url": "https://github.com/platformbuilds/miradorstack/tree/main/miradorstack-grafana-datasource"
+      },
+      {
+        "name": "Mirador Core API",
+        "url": "https://github.com/platformbuilds/miradorstack/tree/main/mirador-core"
+      }
+    ],
+    "screenshots": [],
+    "version": "%VERSION%",
+    "updated": "%TODAY%"
+  },
+  "dependencies": {
+    "grafanaDependency": ">=10.4.0",
+    "plugins": []
+  },
+  "secureJsonFields": {
+    "token": {}
+  }
+}

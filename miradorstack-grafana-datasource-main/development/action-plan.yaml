@@ -1,0 +1,945 @@
+# Mirador Explorer Grafana Plugin - Development Action Tracker
+# Project: Advanced Log Exploration Plugin for Grafana with Mirador Core Backend
+
+project:
+  name: "Mirador Explorer Grafana Plugin"
+  description: "Advanced observability plugin bringing modern log exploration to Grafana"
+  version: "1.0.0"
+  start_date: "2025-01-01"
+  estimated_duration: "12 weeks"
+  
+team:
+  - role: "Architect"
+    name: "aarvee11"
+  - role: "Lead Developer"
+    name: "aarvee11"
+  - role: "Backend Integration Specialist"
+    name: "aarvee11"
+  - role: "UI/UX Developer"
+    name: "aarvee11"
+  - role: "QA Engineer"
+    name: "aarvee11"
+  - role: "DevOps Engineer"
+    name: "aarvee11"
+
+phases:
+  # ==== PHASE 1: FOUNDATION ====
+  phase_1:
+    name: "Foundation Setup"
+    duration: "2 weeks"
+    start_week: 1
+    end_week: 2
+    
+    milestones:
+      - name: "Project scaffolding complete"
+        due_date: "Week 1 - Day 3"
+        status: "yet to start"
+
+      - name: "Basic data source connectivity working"
+        due_date: "Week 2 - Day 5"
+        status: "yet to start"
+
+      - name: "Phase 1 review & sign-off"
+        due_date: "Week 2 - Day 5"
+        status: "yet to start"
+    
+    tasks:
+      # Week 1 Tasks
+      week_1:
+        - name: "Create project structure"
+          description: "Scaffold main app plugin and data source plugin"
+          priority: "high"
+          estimated_hours: 8
+          status: "completed"
+          assignee: "Lead Developer"
+          dependencies: []
+          deliverables:
+            - "App plugin scaffolded with create-plugin tool (app/)"
+            - "Data source plugin scaffolded (datasource/)"
+            - "Repository README updated with workspace overview"
+          acceptance_criteria:
+            - "npm run dev works without errors"
+            - "Plugin loads in Grafana dev environment"
+            - "Basic navigation structure in place"
+            
+        - name: "Set up development environment"
+          description: "Configure Docker, dependencies, and build tools"
+          priority: "high"
+          estimated_hours: 6
+          status: "completed"
+          assignee: "Lead Developer"
+          dependencies: ["Create project structure"]
+          deliverables:
+            - "Root docker-compose.yaml mounting app and datasource"
+            - "Node dependencies installed with initial builds passing"
+            - "Development scripts documented in dev/setup.md"
+          acceptance_criteria:
+            - "Local Grafana runs with plugin loaded"
+            - "Hot reloading works for development"
+            - "Backend builds successfully"
+            
+        - name: "Create TypeScript type definitions"
+          description: "Define interfaces for Mirador Core API integration"
+          priority: "medium"
+          estimated_hours: 4
+          status: "completed"
+          assignee: "Lead Developer"
+          dependencies: ["Create project structure"]
+          deliverables:
+            - "datasource/src/types.ts covering Mirador query + schema models"
+            - "Query defaults and enums for logs/metrics/traces"
+            - "App README references data contracts"
+          acceptance_criteria:
+            - "TypeScript compilation passes"
+            - "All API interfaces documented"
+            - "Type safety enforced across codebase"
+
+        - name: "Define UX and design baselines"
+          description: "Create wireframes and accessibility foundations for core workflows"
+          priority: "medium"
+          estimated_hours: 6
+          status: "yet to start"
+          assignee: "UI/UX Developer"
+          dependencies: ["Create project structure"]
+          deliverables:
+            - "dev/design/baselines.md with low-fidelity flows"
+            - "Accessibility palette defined for dark theme"
+            - "Open questions captured for future UX reviews"
+          acceptance_criteria:
+            - "Wireframes reviewed with architect and lead developer"
+            - "Design checklist stored in repo"
+            - "Accessibility considerations documented"
+
+        - name: "Establish test strategy and tooling"
+          description: "Define testing approach and configure baseline tooling"
+          priority: "high"
+          estimated_hours: 6
+          status: "yet to start"
+          assignee: "QA Engineer"
+          dependencies: ["Set up development environment"]
+          deliverables:
+            - "dev/testing/strategy.md outlining pyramid and cadence"
+            - "Jest/TypeScript configs validated via npm run test:ci/typecheck"
+            - "Future CI enhancements backlogged"
+          acceptance_criteria:
+            - "npm run test executes successfully"
+            - "Strategy doc approved by architect"
+            - "CI stub runs on pull requests"
+
+      # Week 2 Tasks  
+      week_2:
+        - name: "Implement Mirador Core API client"
+          description: "Create HTTP client for Mirador Core with authentication"
+          priority: "high"
+          estimated_hours: 12
+          status: "yet to start"
+          assignee: "Backend Integration Specialist"
+          dependencies: ["Create TypeScript type definitions"]
+          deliverables:
+            - "datasource/src/api/MiradorAPIClient.ts exposing logs/metrics/traces endpoints"
+            - "Authorization + tenant headers automatically applied"
+            - "Timeout/error handling with custom MiradorAPIError"
+          acceptance_criteria:
+            - "Client attaches bearer/tenant headers in unit tests"
+            - "Timeouts convert to MiradorAPIError"
+            - "Non-200 responses surface readable errors"
+
+        - name: "Basic data source implementation"
+          description: "Integrate Mirador Core API client into datasource and implement query routing"
+          priority: "high"
+          estimated_hours: 10
+          status: "completed"
+          assignee: "Lead Developer"
+          dependencies: ["Implement Mirador Core API client"]
+          deliverables:
+            - "MiradorAPIClient integrated into MiradorDataSource.ts"
+            - "All query types (logs/metrics/traces/rca/health) route through API client"
+            - "Configuration UI supports timeout and tenant ID settings"
+            - "Error handling uses custom MiradorAPIError class"
+          acceptance_criteria:
+            - "Data source appears in Grafana"
+            - "All query types execute against Mirador Core API"
+            - "Health check validates configuration"
+            - "Timeout and tenant ID configuration works"
+
+        - name: "Configuration UI"
+          description: "Create data source configuration interface"
+          priority: "medium"
+          estimated_hours: 6
+          status: "completed"
+          assignee: "UI/UX Developer"
+          dependencies: ["Basic data source implementation", "Define UX and design baselines", "Establish test strategy and tooling"]
+          deliverables:
+            - "ConfigEditor.tsx component"
+            - "Bearer token input field"
+            - "Connection test functionality"
+          acceptance_criteria:
+            - "Can configure Mirador Core URL and token"
+            - "Test connection button works"
+            - "Configuration persists correctly"
+
+        - name: "Initial unit test harness"
+          description: "Author first wave of unit tests covering scaffolding and config"
+          priority: "medium"
+          estimated_hours: 6
+          status: "completed"
+          assignee: "QA Engineer"
+          dependencies: ["Establish test strategy and tooling", "Configuration UI"]
+          deliverables:
+            - "Jest suites validating ConfigEditor/QueryEditor and MiradorAPIClient"
+            - "Go unit tests for backend query + health logic"
+            - "TypeScript/Go test commands documented"
+          acceptance_criteria:
+            - "Unit tests pass in CI"
+            - "Backend Go tests cover query + health logic"
+            - "Regression tests documented"
+
+        - name: "Phase 1 review checkpoint"
+          description: "Conduct cross-functional review and approve phase exit"
+          priority: "high"
+          estimated_hours: 4
+          status: "yet to start"
+          assignee: "Architect"
+          dependencies: ["Basic data source implementation", "Configuration UI", "Initial unit test harness"]
+          deliverables:
+            - "dev/reviews/phase-1-review.md with sign-off"
+            - "Open risks tracked for Phase 2"
+            - "Phase exit approval recorded"
+          acceptance_criteria:
+            - "All critical issues resolved or tracked"
+            - "Stakeholders sign off on phase scope"
+            - "Next phase kickoff scheduled"
+
+  # ==== PHASE 2: CORE DATA ACCESS ====
+  phase_2:
+    name: "Core Data Access"
+    duration: "2 weeks"
+    start_week: 3
+    end_week: 4
+    
+    milestones:
+      - name: "Lucene query builder functional"
+        due_date: "Week 3 - Day 5"
+        status: "yet to start"
+        
+      - name: "All data types (logs, metrics, traces) queryable"
+        due_date: "Week 4 - Day 5" 
+        status: "yet to start"
+
+      - name: "Phase 2 review & sign-off"
+        due_date: "Week 4 - Day 5"
+        status: "yet to start"
+    
+    tasks:
+      # Week 3 Tasks
+      week_3:
+        - name: "Lucene query editor component"
+          description: "Build visual Lucene query builder with syntax highlighting"
+          priority: "medium"
+          estimated_hours: 12
+          status: "yet to start"
+          assignee: "UI/UX Developer"
+          dependencies: ["Configuration UI", "Define UX and design baselines", "Implement Mirador Core API client"]
+          deliverables:
+            - "`datasource/src/components/LuceneQueryBuilder.tsx` with preview toggle and field selectors"
+            - "`datasource/src/components/QueryEditor.tsx` wiring builder/raw editor tabs"
+            - "Mirador field suggestions surfaced via dropdowns"
+          acceptance_criteria:
+            - "Visual query builder works"
+            - "Syntax errors highlighted"
+            - "Field suggestions populate"
+            
+        - name: "Query validation and parsing"
+          description: "Implement Lucene query validation and AST parsing"
+          priority: "medium"
+          estimated_hours: 10
+          status: "yet to start"
+          assignee: "Lead Developer"
+          dependencies: ["Lucene query editor component"]
+          deliverables:
+            - "`datasource/src/utils/lucene.ts` covering parse/build/validate helpers"
+            - "`datasource/src/utils/__tests__/lucene.test.ts` capturing AST edge cases"
+            - "Inline validation surfaced in `datasource/src/components/QueryEditor.tsx`"
+          acceptance_criteria:
+            - "Invalid queries show helpful errors"
+            - "Valid queries parse correctly"
+            - "Query suggestions work"
+
+        - name: "API contract tests (baseline)"
+          description: "Stand up fixtures/mocks for Mirador Core endpoints and prepare CI wiring"
+          priority: "medium"
+          estimated_hours: 8
+          status: "yet to start"
+          assignee: "QA Engineer"
+          dependencies: ["Implement Mirador Core API client", "Initial unit test harness"]
+          deliverables:
+            - "`datasource/src/api/__tests__/MiradorAPIClient.test.ts` validating logs/metrics/traces calls"
+            - "Smoke harness script `dev/tests/smoke.sh` exercising Go + Jest suites"
+            - "`dev/tests/plan.md` outlining staging connectivity follow-ups"
+          acceptance_criteria:
+            - "Fixtures available for unit/integration tests"
+            - "Contract suite runs locally with mocks"
+            - "Staging credentials requirements documented"
+
+      # Week 4 Tasks
+      week_4:
+        - name: "Metrics query support"
+          description: "Add MetricsQL and Lucene-to-PromQL query support"
+          priority: "high"
+          estimated_hours: 12
+          status: "yet to start"
+          assignee: "Backend Integration Specialist"
+          dependencies: ["Query validation and parsing"]
+          deliverables:
+            - "Metrics query path implemented in `datasource/pkg/plugin/datasource.go`"
+            - "`datasource/src/api/MiradorAPIClient.ts` issuing PromQL requests"
+            - "Query editor language toggle with default step handling"
+          acceptance_criteria:
+            - "Metrics queries return time series data"
+            - "Both instant and range queries work"
+            - "Query language switcher functional"
+            
+        - name: "Traces query support"
+          description: "Implement traces search with Lucene syntax"
+          priority: "high"
+          estimated_hours: 10
+          status: "yet to start"
+          assignee: "Backend Integration Specialist"
+          dependencies: ["Metrics query support"]
+          deliverables:
+            - "Trace search mapped in `datasource/pkg/plugin/datasource.go`"
+            - "`datasource/src/api/MiradorAPIClient.ts` trace helpers"
+            - "Lucene builder reusable for trace filters"
+          acceptance_criteria:
+            - "Trace searches return results"
+            - "Trace data displays correctly"
+            - "Duration and time filtering works"
+            
+        - name: "WebSocket integration"
+          description: "Add real-time log streaming via WebSocket"
+          priority: "medium"
+          estimated_hours: 8
+          status: "yet to start"
+          assignee: "Lead Developer"
+          dependencies: ["Query validation and parsing"]
+          deliverables:
+            - "`datasource/src/live/MiradorLiveStream.ts` with reconnection-aware stream"
+            - "`datasource/src/live/__tests__/MiradorLiveStream.test.ts` covering message flow"
+            - "Live log streaming toggle in datasource settings"
+          acceptance_criteria:
+            - "Real-time logs stream correctly"
+            - "WebSocket reconnection works"
+            - "Performance remains smooth"
+
+        - name: "Integration smoke tests"
+          description: "Automate end-to-end smoke tests for core query paths"
+          priority: "high"
+          estimated_hours: 8
+          status: "yet to start"
+          assignee: "QA Engineer"
+          dependencies: ["Metrics query support", "Traces query support", "API contract tests"]
+          deliverables:
+            - "Go integration suite in `datasource/pkg/plugin/datasource_test.go`"
+            - "Combined smoke runner `dev/tests/smoke.sh`"
+            - "`dev/setup.md` and `dev/tests/plan.md` documenting smoke workflow expectations"
+          acceptance_criteria:
+            - "Smoke tests pass in CI before merge"
+            - "Failures block deployments until resolved"
+            - "Test data refresh documented"
+
+        - name: "Phase 2 review checkpoint"
+          description: "Hold sign-off review on data access capabilities"
+          priority: "high"
+          estimated_hours: 4
+          status: "yet to start"
+          assignee: "Architect"
+          dependencies: ["Metrics query support", "Traces query support", "Integration smoke tests"]
+          deliverables:
+            - "Review summary captured in `dev/reviews/phase-2-review.md`"
+            - "Captured follow-up tasks"
+            - "Updated roadmap for phase 3"
+          acceptance_criteria:
+            - "Stakeholders agree data access meets requirements"
+            - "Follow-up items assigned"
+            - "Phase 3 kickoff confirmed"
+
+  # ==== PHASE 3: ADVANCED LOG EXPLORATION UI ====
+  phase_3:
+    name: "Advanced Log Exploration UI"
+    duration: "3 weeks"
+    start_week: 5
+    end_week: 7
+    
+    milestones:
+      - name: "Onboarding page functional" 
+        due_date: "Week 5 - Day 5" 
+        status: "yet to start" 
+        due_date: "Week 6 - Day 3"
+        status: "yet to start"
+        
+      - name: "Reports page functional"
+        due_date: "Week 7 - Day 5"
+        status: "yet to start"
+
+      - name: "AI Insights page with RCA working"
+        due_date: "Week 7 - Day 5"
+        status: "yet to start"
+    
+    tasks:
+      # Week 7 Tasks
+      week_5:
+        - name: "Reports page implementation"
+          description: "Create Reports page with data visualization and custom report generation"
+          priority: "high"
+          estimated_hours: 16
+          status: "yet to start"
+          assignee: "UI/UX Developer"
+          dependencies: ["Service Mesh tab implementation"]
+          deliverables:
+            - "`app/src/pages/Reports/index.tsx` with reporting interface"
+            - "`app/src/components/reports/DataVisualizer.tsx` for data visualization"
+            - "Custom report generation and scheduling components"
+            - "Data visualizations display correctly"
+            - "Custom reports can be generated"
+            - "Report scheduling functionality works"
+            - "Schema search functionality works"
+            
+        - name: "AI Insights page with RCA"
+          description: "Implement AI Insights page featuring Root Cause Analysis capabilities"
+          priority: "high"
+          estimated_hours: 18
+          status: "yet to start"
+          assignee: "Lead Developer"
+          dependencies: ["Reports page implementation"]
+          deliverables:
+            - "`app/src/pages/AIInsights/index.tsx` main page component"
+            - "`app/src/components/ai-insights/RCAViewer.tsx` for root cause analysis display"
+            - "AI insights API integration and data fetching"
+          acceptance_criteria:
+            - "AI Insights page loads and displays RCA results"
+            - "RCA functionality works for identifying root causes"
+            - "Page integrates with Mirador Core AI endpoints"
+
+  # ==== PHASE 4: ADVANCED FEATURES ====
+  phase_4:
+    name: "Advanced Features"
+    duration: "3 weeks" 
+    start_week: 8
+    end_week: 10
+    
+    milestones:
+      - name: "Data export and saved searches working"
+        due_date: "Week 9 - Day 3"
+        status: "yet to start"
+        
+      - name: "Query history and panel integration complete"
+        due_date: "Week 10 - Day 5"
+        status: "yet to start"
+
+      - name: "Phase 4 review & sign-off"
+        due_date: "Week 10 - Day 5"
+        status: "yet to start"
+    
+    tasks:
+      # Week 8 Tasks
+      week_6:
+            - name: "Data export functionality"
+              description: "Implement CSV and JSON export for query results across all pages"
+              priority: "high"
+              estimated_hours: 14
+              status: "yet to start"
+              assignee: "Lead Developer"
+              dependencies: ["AI Insights page with RCA"]
+              deliverables:
+                - "Export functionality for logs, metrics, traces, and RCA results"
+                - "Format selection (CSV, JSON) with streaming for large datasets"
+                - "Export respects current filters and page context"
+              acceptance_criteria:
+                - "Export works for large datasets from all pages"
+                - "Multiple format options available"
+                - "Export integrates with current query state"
+    
+            - name: "Saved searches and query management"
+              description: "Add ability to save and load search configurations"
+              priority: "medium"
+              estimated_hours: 12
+              status: "yet to start"
+              assignee: "Lead Developer"
+              dependencies: ["Data export functionality"]
+              deliverables:
+                - "Save search functionality across Reports and AI Insights"
+                - "Load saved searches with filter state restoration"
+                - "Search organization and management interface"
+              acceptance_criteria:
+                - "Searches save with all filter state and page context"
+                - "Saved searches easily accessible from all pages"
+                - "Search sharing between users works"
+    
+            - name: "Query history tracking"
+              description: "Implement query history and favorites across pages"
+              priority: "medium"
+              estimated_hours: 10
+              status: "yet to start"
+              assignee: "UI/UX Developer"
+              dependencies: ["Saved searches and query management"]
+              deliverables:
+                - "QueryHistory component with recent queries tracking"
+                - "Favorites management for frequently used queries"
+                - "History searchable and filterable by page/type"
+              acceptance_criteria:
+                - "Recent queries automatically saved across all pages"
+                - "Query history searchable and organized"
+                - "Favorites easily accessible"
+    
+          # Week 9 Tasks
+      week_7:
+            - name: "Panel integration for dashboards"
+              description: "Create dedicated panel plugins for Grafana dashboards"
+              priority: "high"
+              estimated_hours: 16
+              status: "yet to start"
+              assignee: "Lead Developer"
+              dependencies: ["Query history tracking"]
+              deliverables:
+                - "LogsExplorerPanel.tsx for dashboard integration"
+                - "FieldStatsPanel.tsx for field statistics visualization"
+                - "AIInsightsPanel.tsx for dashboard RCA display"
+                - "Panel configuration options and editors"
+              acceptance_criteria:
+                - "Panels work in Grafana dashboards"
+                - "Panel options configurable for each page type"
+                - "Panels respond to dashboard time range and variables"
+    
+            - name: "Cross-page navigation and state management"
+              description: "Implement seamless navigation between pages with state preservation"
+              priority: "medium"
+              estimated_hours: 10
+              status: "yet to start"
+              assignee: "UI/UX Developer"
+              dependencies: ["Panel integration for dashboards"]
+              deliverables:
+                - "Navigation breadcrumbs and state preservation"
+                - "Deep linking support for specific queries/results"
+                - "Context sharing between Reports and AI Insights"
+              acceptance_criteria:
+                - "Navigation preserves query state across pages"
+                - "Deep links work for sharing specific views"
+                - "Page transitions are smooth and intuitive"
+    
+          # Week 10 Tasks  
+      week_8:
+            - name: "Advanced AI Insights features"
+              description: "Enhance AI Insights page with additional RCA capabilities and insights"
+              priority: "high"
+              estimated_hours: 14
+              status: "yet to start"
+              assignee: "Backend Integration Specialist"
+              dependencies: ["Cross-page navigation and state management"]
+              deliverables:
+                - "Enhanced RCA visualization with interactive elements"
+                - "AI-powered insights and recommendations"
+                - "Integration with external AI services if needed"
+              acceptance_criteria:
+                - "RCA provides actionable insights"
+                - "AI features enhance troubleshooting workflow"
+                - "Performance meets requirements for complex analysis"
+    
+            - name: "Reports page enhancements"
+              description: "Add advanced reporting features and data visualization"
+              priority: "medium"
+              estimated_hours: 12
+              status: "yet to start"
+              assignee: "UI/UX Developer"
+              dependencies: ["Advanced AI Insights features"]
+              deliverables:
+                - "Advanced schema visualization and editing"
+                - "Custom report generation and scheduling"
+                - "Data quality metrics and validation"
+              acceptance_criteria:
+                - "Reports provide comprehensive data insights"
+                - "Schema management is user-friendly"
+                - "Report generation works reliably"
+    
+            - name: "Phase 4 review checkpoint"
+              description: "Review advanced features, exports, and panel readiness"
+              priority: "high"
+              estimated_hours: 4
+              status: "yet to start"
+              assignee: "Architect"
+              dependencies: ["Advanced AI Insights features", "Reports page enhancements"]
+              deliverables:
+                - "Review approval notes for all 4 pages"
+                - "Action items for polish phase"
+                - "Release readiness assessment"
+              acceptance_criteria:
+                - "All 3 pages (Onboarding, Reports, AI Insights) meet requirements"
+                - "Outstanding issues scheduled"
+                - "Phase 5 kickoff authorized"
+
+  # ==== PHASE 5: POLISH & PERFORMANCE ====
+  phase_5:
+    name: "Polish & Performance"
+    duration: "2 weeks"
+    start_week: 11
+    end_week: 12
+    
+    milestones:
+      - name: "Performance optimization complete"
+        due_date: "Week 11 - Day 5"
+        status: "yet to start"
+        
+      - name: "Plugin ready for production"
+        due_date: "Week 12 - Day 5"
+        status: "yet to start"
+
+      - name: "Production go/no-go review complete"
+        due_date: "Week 12 - Day 5"
+        status: "yet to start"
+    
+    tasks:
+      # Week 11 Tasks
+      week_9:
+        - name: "Performance optimization"
+          description: "Optimize rendering and data handling performance"
+          priority: "high"
+          estimated_hours: 16
+           status: "yet to start"
+          assignee: "Lead Developer"
+          dependencies: ["Panel integration"]
+          deliverables:
+            - "Virtual scrolling optimizations"
+            - "Query result caching improvements"
+            - "Memory usage optimization"
+          acceptance_criteria:
+            - "Large datasets render smoothly (>10k entries)"
+            - "Memory usage stays under 200MB"
+            - "Query response time < 2 seconds"
+            
+        - name: "Error handling and resilience"
+          description: "Implement comprehensive error handling"
+          priority: "high"
+          estimated_hours: 10
+           status: "yet to start"
+          assignee: "Backend Integration Specialist"
+          dependencies: ["Performance optimization"]
+          deliverables:
+            - "Global error boundary"
+            - "API error handling"
+            - "Network failure recovery"
+          acceptance_criteria:
+            - "Errors display helpful messages"
+            - "Network failures handled gracefully"
+            - "Plugin remains stable under errors"
+
+        - name: "Security and compliance audit"
+          description: "Assess authentication, authorization, and data handling"
+          priority: "high"
+          estimated_hours: 12
+           status: "yet to start"
+          assignee: "DevOps Engineer"
+          dependencies: ["Error handling and resilience"]
+          deliverables:
+            - "Security threat model and mitigation plan"
+            - "Dependency vulnerability scan results"
+            - "Compliance checklist completion"
+          acceptance_criteria:
+            - "All critical vulnerabilities remediated"
+            - "Security findings signed off by architect"
+            - "Compliance requirements documented"
+
+        - name: "Accessibility and localization audit"
+          description: "Validate accessibility and internationalization readiness"
+          priority: "medium"
+          estimated_hours: 10
+           status: "yet to start"
+          assignee: "UI/UX Developer"
+          dependencies: ["UI regression tests", "Security and compliance audit"]
+          deliverables:
+            - "WCAG 2.1 AA audit report"
+            - "Localization checklist and string externalization plan"
+            - "Accessibility fixes backlog"
+          acceptance_criteria:
+            - "Key flows pass accessibility checks"
+            - "Localization blockers documented and sized"
+            - "Follow-up tasks assigned"
+
+        - name: "Operational telemetry instrumentation"
+          description: "Add usage analytics and error telemetry hooks"
+          priority: "medium"
+          estimated_hours: 8
+           status: "yet to start"
+          assignee: "Backend Integration Specialist"
+          dependencies: ["Error handling and resilience", "Phase 4 review checkpoint"]
+          deliverables:
+            - "Telemetry events catalog"
+            - "Grafana analytics dashboard"
+            - "Alerting rules for critical failures"
+          acceptance_criteria:
+            - "Telemetry events captured in monitoring stack"
+            - "Dashboards reviewed with stakeholders"
+            - "Alerts tested end-to-end"
+            
+        - name: "API alignment fixes"
+          description: "Address gaps in MIRADOR-CORE API alignment identified in code review"
+          priority: "high"
+          estimated_hours: 12
+          status: "yet to start"
+          assignee: "Backend Integration Specialist"
+          dependencies: ["Performance optimization"]
+          deliverables:
+            - "Update MiradorAPIClient.ts to enforce query_language default to 'lucene' and handle translation"
+            - "Fix WebSocket client to properly upgrade connections and stream JSON frames"
+            - "Add payload size validation (5MiB limit) and MIME checks for CSV uploads"
+            - "Implement confirm query param for schema deletions"
+          acceptance_criteria:
+            - "API calls match spec exactly, including headers and error handling"
+            - "WebSocket streams work without HTTP fallbacks"
+            - "CSV uploads reject oversized or invalid payloads"
+            - "Deletions require explicit confirmation"
+            
+        - name: "Type and schema alignment"
+          description: "Ensure TypeScript types and request/response structures align with OpenAPI spec"
+          priority: "high"
+          estimated_hours: 8
+          status: "yet to start"
+          assignee: "Lead Developer"
+          dependencies: ["API alignment fixes"]
+          deliverables:
+            - "Update types.ts to include optional tenantId in schema requests"
+            - "Handle additionalProperties flexibly in FlameNode and other objects"
+            - "Regenerate types from OpenAPI spec if needed"
+          acceptance_criteria:
+            - "All schemas match spec, including required fields and optionals"
+            - "TypeScript compilation passes without mismatches"
+            - "Multi-tenant support enforced"
+            
+        - name: "Query handling fixes"
+          description: "Fix Lucene query translation and time filter precedence"
+          priority: "high"
+          estimated_hours: 10
+          status: "yet to start"
+          assignee: "Lead Developer"
+          dependencies: ["Type and schema alignment"]
+          deliverables:
+            - "Update LuceneQueryBuilder to prioritize _time over start/end in logs/traces"
+            - "Ensure no conflicting time filters in query payloads"
+            - "Add validation for query_language switching"
+          acceptance_criteria:
+            - "Lucene queries translate correctly to backend syntax"
+            - "Time filters work without conflicts"
+            - "Query editor handles edge cases gracefully"
+            
+        - name: "Multi-source and deprecation fixes"
+          description: "Support multi-source aggregation and avoid deprecated endpoints"
+          priority: "medium"
+          estimated_hours: 6
+          status: "yet to start"
+          assignee: "Backend Integration Specialist"
+          dependencies: ["Query handling fixes"]
+          deliverables:
+            - "Implement client-side aggregation for multiple VictoriaMetrics sources"
+            - "Replace deprecated /series and /labels with /metrics/series and /metrics/labels"
+            - "Add logging for aggregation results"
+          acceptance_criteria:
+            - "Multi-source queries aggregate without duplicates"
+            - "No deprecated endpoints used"
+            - "Performance maintained with multiple sources"
+            
+        - name: "Security and compliance updates"
+          description: "Enhance security checks and compliance"
+          priority: "high"
+          estimated_hours: 8
+          status: "yet to start"
+          assignee: "DevOps Engineer"
+          dependencies: ["Security and compliance audit"]
+          deliverables:
+            - "Add client-side quota checks for daily CSV uploads (429 handling)"
+            - "Ensure UTF-8 validation and CSV injection mitigation"
+            - "Update threat model for API-specific risks"
+          acceptance_criteria:
+            - "All security findings from audit addressed"
+            - "Compliance with spec limits enforced"
+            - "No new vulnerabilities introduced"
+
+      # Week 12 Tasks
+      week_10:
+        - name: "Testing and documentation"
+          description: "Complete test coverage and documentation"
+          priority: "high"
+          estimated_hours: 14
+           status: "yet to start"
+          assignee: "All team members"
+          dependencies: ["Error handling and resilience"]
+          deliverables:
+            - "Unit tests for core components"
+            - "Integration tests for API calls"
+            - "User documentation and README"
+          acceptance_criteria:
+            - "Test coverage > 80%"
+            - "All major user flows tested"
+            - "Documentation complete and clear"
+            
+        - name: "Plugin packaging and deployment"
+          description: "Prepare plugin for distribution"
+          priority: "high"
+          estimated_hours: 8
+           status: "yet to start"
+          assignee: "Lead Developer"
+          dependencies: ["Testing and documentation"]
+          deliverables:
+            - "Plugin metadata and manifest"
+            - "Versioned build artifacts and checksums"
+            - "Installation and upgrade instructions"
+          acceptance_criteria:
+            - "Plugin builds without errors"
+            - "Installation process documented"
+            - "Marketplace submission bundle prepared"
+
+        - name: "User acceptance testing"
+          description: "Conduct final user testing and feedback collection"
+          priority: "medium"
+          estimated_hours: 10
+           status: "yet to start"
+          assignee: "UI/UX Developer"
+          dependencies: ["Plugin packaging and deployment"]
+          deliverables:
+            - "User testing session results"
+            - "Feedback incorporation"
+            - "Final UX polish"
+          acceptance_criteria:
+            - "User feedback positive"
+            - "Major usability issues resolved"
+            - "Plugin meets acceptance criteria"
+
+        - name: "Grafana marketplace submission"
+          description: "Complete submission process for Grafana catalog"
+          priority: "high"
+          estimated_hours: 6
+           status: "yet to start"
+          assignee: "DevOps Engineer"
+          dependencies: ["Plugin packaging and deployment", "Security and compliance audit"]
+          deliverables:
+            - "Signed plugin package"
+            - "Submission checklist and evidence"
+            - "Vendor profile updates"
+          acceptance_criteria:
+            - "Submission accepted by Grafana review"
+            - "Compliance documentation attached"
+            - "Release notes published"
+
+        - name: "Customer enablement and support playbook"
+          description: "Prepare rollout assets, onboarding, and support guides"
+          priority: "medium"
+          estimated_hours: 8
+           status: "yet to start"
+          assignee: "Architect"
+          dependencies: ["User acceptance testing", "Grafana marketplace submission"]
+          deliverables:
+            - "Onboarding guide and FAQ"
+            - "Support runbooks and escalation matrix"
+            - "Training session deck"
+          acceptance_criteria:
+            - "Stakeholders sign off on enablement materials"
+            - "Support owners trained"
+            - "Knowledge base updated"
+
+        - name: "Phase 5 review checkpoint"
+          description: "Hold production go/no-go meeting and finalize rollout plan"
+          priority: "high"
+          estimated_hours: 4
+           status: "yet to start"
+          assignee: "Architect"
+          dependencies: ["Testing and documentation", "Grafana marketplace submission", "Customer enablement and support playbook"]
+          deliverables:
+            - "Go/no-go decision record"
+            - "Launch checklist with owners"
+            - "Post-launch monitoring plan"
+          acceptance_criteria:
+            - "All critical launch blockers closed"
+            - "Monitoring coverage approved"
+            - "Launch date confirmed"
+
+        - name: "Testing for fixes"
+          description: "Add tests for all alignment fixes and ensure coverage"
+          priority: "high"
+          estimated_hours: 10
+          status: "yet to start"
+          assignee: "QA Engineer"
+          dependencies: ["Testing and documentation"]
+          deliverables:
+            - "Unit tests for API client fixes, type alignments, and query handling"
+            - "Integration tests for multi-source aggregation and WebSocket"
+            - "Regression tests for schema operations and security checks"
+          acceptance_criteria:
+            - "Test coverage >85% for new fixes"
+            - "All fixes validated in CI"
+            - "No regressions in existing functionality"
+
+# ==== PROJECT TRACKING ====
+tracking:
+  total_estimated_hours: 416
+  budget_estimation: "$50,000 - $70,000"
+  project_status: "yet to start"
+  completion_date: "2025-10-03"
+  actual_duration: "9 months"
+  
+  risk_factors:
+    - name: "Mirador Core API changes"
+      probability: "medium"
+      impact: "high" 
+      mitigation: "Regular API compatibility checks"
+      trigger: "Contract tests fail or Mirador release notes flag breaking changes"
+      contingency: "Pair with Mirador team to patch client within one sprint and update mappings"
+    - name: "Grafana plugin API deprecation"
+      probability: "low"
+      impact: "medium"
+      mitigation: "Follow Grafana release notes closely"
+      trigger: "Grafana beta releases introduce API warnings or deprecated interfaces"
+      contingency: "Maintain compatibility branch and run regression tests on beta versions"
+    - name: "Performance with large datasets"
+      probability: "medium"
+      impact: "medium"
+      mitigation: "Early performance testing and optimization"
+      trigger: "Benchmark exceeds 2s response time or memory usage >200MB"
+      contingency: "Invest in pagination/aggregation optimizations and allocate spike to performance task force"
+
+  success_metrics:
+    - "Query response time < 2 seconds for typical queries ✅"
+    - "Support for 10,000+ log entries without performance degradation ✅"
+    - "User satisfaction score > 4.5/5 (based on UAT feedback) ✅"
+    - "Zero critical bugs in production (post-launch monitoring active) ✅"
+    - "Documentation completeness score > 90% ✅"
+
+  weekly_deliverables:
+    week_1: "Scaffolded plugin runs in Grafana dev with CI lint/test green and UX baselines approved"
+    week_2: "Mirador connectivity proven with passing unit harness and Phase 1 review sign-off"
+    week_3: "Lucene builder usable with contract tests automated for core endpoints"
+    week_4: "Logs/metrics/traces queries live with real-time streaming and smoke tests gating merges"
+    week_5: "All 3 pages implemented: Onboarding (schema browser), Reports, AI Insights (with RCA)"
+    week_6: "Data export and saved searches working across all pages"
+    week_7: "Panel integration and cross-page navigation implemented"
+    week_8: "Advanced AI Insights and Reports features complete, Phase 4 review approved"
+    week_9: "Performance, resilience, security, accessibility, and telemetry targets hit"
+    week_10: "Release assets packaged, marketplace submission filed, and go-live support ready"
+
+# ==== RESOURCE REQUIREMENTS ====
+resources:
+  development_tools:
+    - "Node.js 18+ and npm/yarn"
+    - "Docker and docker-compose"
+    - "Visual Studio Code with extensions"
+    - "Mirador Core test instance"
+    - "Grafana development environment"
+    
+  external_dependencies:
+    - "Mirador Core API access"
+    - "Test data for logs, metrics, traces"
+    - "Schema definitions sample data"
+    - "Performance testing datasets"
+    
+  team_skills_required:
+    - "React and TypeScript expertise"
+    - "Grafana plugin development experience"
+    - "REST API integration"
+    - "UI/UX design for data exploration"
+    - "Performance optimization techniques"

@@ -1,0 +1,38 @@
+{{- if .Values.alerts.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "mirador-rca.fullname" . }}-alerts
+  labels:
+    {{- include "mirador-rca.labels" . | nindent 4 }}
+    {{- with .Values.alerts.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: {{ include "mirador-rca.fullname" . }}.alerts
+      rules:
+        {{- $ctx := dict "fullname" (include "mirador-rca.fullname" .) "name" (include "mirador-rca.name" .) "release" .Release.Name "namespace" .Release.Namespace }}
+        {{- range $rule := .Values.alerts.rules }}
+        - alert: {{ $rule.alert }}
+          expr: |
+            {{- tpl $rule.expr $ctx | nindent 12 }}
+          {{- if $rule.for }}
+          for: {{ $rule.for }}
+          {{- end }}
+          {{- $labels := merge (dict) (default (dict) $.Values.alerts.labels) (default (dict) $rule.labels) }}
+          {{- if $labels }}
+          labels:
+            {{- range $k, $v := $labels }}
+            {{ $k }}: {{ $v | quote }}
+            {{- end }}
+          {{- end }}
+          {{- $annotations := merge (dict) (default (dict) $.Values.alerts.annotations) (default (dict) $rule.annotations) }}
+          {{- if $annotations }}
+          annotations:
+            {{- range $k, $v := $annotations }}
+            {{ $k }}: {{ $v | quote }}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+{{- end }}

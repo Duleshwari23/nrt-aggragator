@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mirador-rca.fullname" . }}
+  labels:
+    {{- include "mirador-rca.labels" . | nindent 4 }}
+    {{- with .Values.service.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- if and .Values.metrics.enabled .Values.metrics.labels }}
+    {{- toYaml .Values.metrics.labels | nindent 4 }}
+    {{- end }}
+  {{- $annotations := dict }}
+  {{- if .Values.service.annotations }}
+  {{- range $k, $v := .Values.service.annotations }}
+  {{- $_ := set $annotations $k $v }}
+  {{- end }}
+  {{- end }}
+  {{- if and .Values.metrics.enabled .Values.metrics.annotations }}
+  {{- range $k, $v := .Values.metrics.annotations }}
+  {{- $_ := set $annotations $k $v }}
+  {{- end }}
+  {{- end }}
+  {{- if $annotations }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "mirador-rca.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ .Values.service.port }}
+      protocol: TCP
+      targetPort: grpc
+    {{- if .Values.metrics.enabled }}
+    - name: metrics
+      port: {{ .Values.metrics.port }}
+      protocol: TCP
+      targetPort: metrics
+    {{- end }}

@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weaviate
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: weaviate
+          env:
+            - name: AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED
+              value: "false"
+            - name: AUTHENTICATION_OIDC_ENABLED
+              value: "true"
+            - name: AUTHENTICATION_OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: weaviate-oidc
+                  key: clientID
+            - name: AUTHENTICATION_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: weaviate-oidc
+                  key: clientSecret
+            - name: AUTHENTICATION_OIDC_ISSUER
+              valueFrom:
+                secretKeyRef:
+                  name: weaviate-oidc
+                  key: issuer

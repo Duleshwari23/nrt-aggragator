@@ -1,0 +1,31 @@
+# Mock API server Dockerfile
+FROM node:20-alpine AS mock-api
+
+WORKDIR /app
+
+# Install dependencies for running Node.js server
+RUN apk add --no-cache curl
+
+# Copy mock server file
+COPY server.js ./
+
+# Install minimal dependencies
+RUN npm install express cors
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S mockapi -u 1001 -G nodejs && \
+    chown -R mockapi:nodejs /app
+
+# Switch to non-root user
+USER mockapi
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/api/health || exit 1
+
+# Start mock server
+CMD ["node", "server.js"]

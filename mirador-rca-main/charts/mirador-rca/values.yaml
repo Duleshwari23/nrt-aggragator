@@ -1,0 +1,211 @@
+replicaCount: 2
+revisionHistoryLimit: 5
+
+image:
+  repository: ghcr.io/miradorstack/mirador-rca
+  tag: ""
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+commonLabels: {}
+
+imagePullSecrets: []
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 50051
+  annotations: {}
+  labels: {}
+
+metrics:
+  enabled: true
+  port: 2112
+  annotations: {}
+  labels: {}
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 1
+    memory: 1Gi
+
+topologySpreadConstraints: []
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+config:
+  server:
+    address: ":50051"
+    metricsAddress: ":2112"
+    gracefulTimeout: 10s
+  clients:
+    core:
+      baseURL: "http://mirador-core:8080"
+      metricsPath: "/api/v1/rca/metrics"
+      logsPath: "/api/v1/rca/logs"
+      tracesPath: "/api/v1/rca/traces"
+      serviceGraphPath: "/api/v1/rca/service-graph"
+      timeout: 5s
+  weaviate:
+    endpoint: "http://weaviate.api.svc.cluster.local"
+    apiKey: ""
+    timeout: 5s
+  cache:
+    addr: "valkey.mirador.svc.cluster.local:6379"
+    username: ""
+    db: 0
+    tls: false
+    similarIncidentsTTL: 2m
+    serviceGraphTTL: 5m
+  logging:
+    level: info
+    json: true
+  rules:
+    path: "/etc/mirador/rules/default.yaml"
+
+runtimeSecrets:
+  weaviateAPIKey:
+    name: ""
+    key: apiKey
+  cachePassword:
+    name: ""
+    key: password
+  cacheUsername:
+    name: ""
+    key: username
+
+valkey:
+  enabled: true
+
+extraEnv: []
+extraEnvFrom: []
+extraVolumes: []
+extraVolumeMounts: []
+
+livenessProbe:
+  tcpSocket:
+    port: grpc
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  tcpSocket:
+    port: grpc
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  failureThreshold: 3
+
+startupProbe:
+  tcpSocket:
+    port: grpc
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 30
+
+alerts:
+  enabled: true
+  labels: {}
+  annotations: {}
+  rules:
+    - alert: MiradorRCAHighLatency
+      expr: |
+        histogram_quantile(0.95, sum(rate(mirador_rca_investigation_seconds_bucket{job="{{ .fullname }}"}[5m])) by (le)) > 4
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: Mirador RCA p95 latency degraded
+        description: Investigation latency exceeded 4 seconds for 5 minutes.
+    - alert: MiradorRCANoTraffic
+      expr: |
+        sum(rate(grpc_server_handled_total{grpc_service="mirador.rca.v1.RCAEngine",job="{{ .fullname }}"}[10m])) == 0
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: Mirador RCA received no gRPC traffic
+        description: No investigations were handled in the last 10 minutes.
+
+dashboards:
+  enabled: true
+  labels:
+    grafana_dashboard: "1"
+  filename: mirador-rca.json
+  content: |
+    {
+      "title": "Mirador RCA",
+      "tags": ["mirador", "rca"],
+      "timezone": "browser",
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Investigation p95 latency",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(mirador_rca_investigation_seconds_bucket{job=\"{{ .fullname }}\"}[5m])) by (le))",
+              "legendFormat": "p95 latency"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 4},
+                  {"color": "red", "value": 6}
+                ]
+              }
+            }
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Investigations per minute",
+          "targets": [
+            {
+              "expr": "sum(rate(grpc_server_handled_total{grpc_service=\"mirador.rca.v1.RCAEngine\",job=\"{{ .fullname }}\"}[5m]))",
+              "legendFormat": "rpm"
+            }
+          ]
+        }
+      ],
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      }
+    }

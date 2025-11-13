@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  cassandra:
+    image: cassandra:latest
+    container_name: playground-cassandra
+    ports:
+      - "9042:9042"
+      - "7199:7199"  # JMX port
+    environment:
+      - CASSANDRA_CLUSTER_NAME=PlaygroundCluster
+      - JVM_OPTS=-Dcassandra.jmx.remote.port=7199 -Dcassandra.jmx.remote.rmi.port=7199 -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Djava.rmi.server.hostname=localhost
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD", "nodetool", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  cassandra-jmx-exporter:
+    image: bitnami/jmx-exporter:latest
+    container_name: playground-cassandra-jmx-exporter
+    ports:
+      - "7070:7070"
+    environment:
+      - JMX_HOST=cassandra
+      - JMX_PORT=7199
+    volumes:
+      - ./cassandra-jmx-config.yml:/opt/bitnami/jmx-exporter/config.yml:ro
+    depends_on:
+      - cassandra
+
+  valkey:
+    image: valkey/valkey:latest
+    container_name: playground-valkey
+    ports:
+      - "6380:6379"
+    command: valkey-server --appendonly yes
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: playground-redis-exporter
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis://valkey:6379
+      - REDIS_PASSWORD=
+    depends_on:
+      - valkey
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: playground-node-exporter
+    ports:
+      - "9100:9100"
+    command:
+      - '--path.rootfs=/host'
+    volumes:
+      - '/:/host:ro,rslave'
+
+  springbootapp:
+    build: .
+    container_name: playground-springboot
+    ports:
+      - "8081:8080"
+    depends_on:
+      cassandra:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    environment:
+      - CASSANDRA_HOST=cassandra
+      - CASSANDRA_PORT=9042
+      - VALKEY_HOST=valkey
+      - VALKEY_PORT=6379
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_TIMEOUT=120000
+      - OTEL_SERVICE_NAME=miradorstack-playground-app
+      - OTEL_SERVICE_VERSION=1.0.0
+
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: appserver-otel-collector
+    ports:
+      - "4317:4317"  # gRPC
+      - "4318:4318"  # HTTP
+    volumes:
+      - ./otel-config.yaml:/etc/otel/config.yaml
+    command: ["--config", "/etc/otel/config.yaml"]
+    depends_on:
+      - springbootapp
+
+volumes:
+  cassandra_data:
+  valkey_data:
+
+networks:
+  default:
+    external:
+      name: miradorstack-playnet
