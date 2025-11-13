@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mirador-rca.fullname" . }}-config
+  labels:
+    {{- include "mirador-rca.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- include "mirador-rca.renderConfig" . | nindent 4 }}

@@ -1,0 +1,143 @@
+version: '3.9'
+
+services:
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    ports:
+      - "4317:4317"  # gRPC
+      - "4318:4318"  # HTTP
+      - "55679:55679"  # zPages
+    volumes:
+      - ./otel-config.yaml:/etc/otel/config.yaml
+    command: ["--config", "/etc/otel/config.yaml"]
+
+  # VictoriaMetrics for metrics
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:latest
+    ports:
+      - "8428:8428"
+    command:
+      - '--storageDataPath=/victoria-metrics-data'
+      - '--httpListenAddr=:8428'
+      - '--retentionPeriod=1'  # Short retention for demo
+    volumes:
+      - vm_data:/victoria-metrics-data
+
+  # VictoriaLogs for logs
+  victorialogs:
+    image: victoriametrics/victoria-logs:latest
+    ports:
+      - "9428:9428"
+    command:
+      - '--storageDataPath=/victoria-logs-data'
+      - '--httpListenAddr=:9428'
+    volumes:
+      - vl_data:/victoria-logs-data
+
+  # VictoriaTraces for traces
+  victoriatraces:
+    image: victoriametrics/victoria-traces:latest
+    ports:
+      - "10428:10428"
+    command:
+      - '--storageDataPath=/victoria-traces-data'
+      - '--httpListenAddr=:10428'
+    volumes:
+      - vt_data:/victoria-traces-data
+
+  # Valkey (Redis-compatible cache)
+  valkey:
+    image: valkey/valkey:latest
+    container_name: mirador-valkey
+    ports:
+      - "6379:6379"
+
+  # Weaviate (vector database)
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.32.8
+    pull_policy: if_not_present
+    container_name: weaviate
+    ports:
+      - "8080:8080"
+      # - "50051:50051"  # only if you use gRPC
+    restart: unless-stopped
+    environment:
+      CLUSTER_HOSTNAME: "node-1"                 # <— add this
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      DEFAULT_VECTORIZER_MODULE: "none"
+      QUERY_DEFAULTS_LIMIT: "25"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+      AUTOSCHEMA_ENABLED: "false"
+      LOG_LEVEL: "debug"
+      # DO NOT set CLUSTER_JOIN / RAFT_* on single-node
+      # REMOVE the two lines below if they exist:
+      # CLUSTER_GOSSIP_BIND_PORT: "7100"
+      # CLUSTER_DATA_BIND_PORT: "7101"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/v1/.well-known/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - weavdata:/var/lib/weaviate
+
+  # MIRADOR Core
+  mirador-core:
+    image: localdev_mirador-core:latest
+    ports:
+      - "8010:8010"
+      - "9090:9090"
+    volumes:
+      - ./config.development.yaml:/configs/config.development.yaml:ro
+    environment:
+      - ENVIRONMENT=development
+      - CONFIG_PATH=/configs/config.development.yaml
+      - LOG_LEVEL=debug
+      - VM_ENDPOINTS=http://victoriametrics:8428
+      - VL_ENDPOINTS=http://victorialogs:9428
+      - VT_ENDPOINTS=http://victoriatraces:10428
+    depends_on:
+      - victoriametrics
+      - victorialogs
+      - victoriatraces
+      - otel-collector
+      - valkey
+      - weaviate
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana-oss:latest
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=platf0rmbu1lds
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - victoriametrics
+      - victorialogs
+      - victoriatraces
+
+  # HAProxy for load balancing and SSL termination
+  haproxy:
+    image: haproxy:latest
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+    depends_on:
+      - grafana
+
+volumes:
+  vm_data:
+  vl_data:
+  vt_data:
+  grafana_data:
+  weavdata:
+
+networks:
+  default:
+    external:
+      name: miradorstack-playnet

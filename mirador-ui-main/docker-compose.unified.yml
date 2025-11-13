@@ -1,0 +1,37 @@
+services:
+  # Unified Mirador UI + Mock API container
+  mirador-unified:
+    build:
+      context: .
+      dockerfile: Dockerfile.unified
+    image: mirador-ui:unified
+    container_name: mirador-unified
+    ports:
+      - "3000:3000"   # Main application (frontend)
+      - "3001:3001"   # Mock API
+    environment:
+      - NODE_ENV=development
+      - MOCK_PORT=3001
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health.html"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mirador-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mirador-unified.rule=Host(`localhost`)"
+      - "traefik.http.services.mirador-unified.loadbalancer.server.port=3000"
+
+networks:
+  mirador-network:
+    driver: bridge
+    name: mirador-network
+
+# Volume for persistent data (if needed)
+volumes:
+  mirador-data:
+    name: mirador-data

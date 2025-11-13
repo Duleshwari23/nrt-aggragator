@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # Main Mirador UI application
+  mirador-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: mirador-ui:latest
+    container_name: mirador-ui-app
+    ports:
+      - "3000:80"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mirador-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mirador-ui.rule=Host(`localhost`)"
+      - "traefik.http.services.mirador-ui.loadbalancer.server.port=80"
+
+  # Development version with hot reload
+  mirador-ui-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: development
+    image: mirador-ui:dev
+    container_name: mirador-ui-dev
+    ports:
+      - "5173:5173"
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:3001
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/dist
+    restart: unless-stopped
+    command: pnpm dev --host 0.0.0.0
+    networks:
+      - mirador-network
+    profiles:
+      - dev
+
+  # Mock API server for development
+  mock-api:
+    build:
+      context: ./mock
+      dockerfile: ../docker/Dockerfile.mock
+    image: mirador-mock-api:latest
+    container_name: mirador-mock-api
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=development
+    restart: unless-stopped
+    networks:
+      - mirador-network
+    profiles:
+      - dev
+
+  # Nginx reverse proxy (optional)
+  nginx-proxy:
+    image: nginx:alpine
+    container_name: mirador-nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docker/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - mirador-ui
+    restart: unless-stopped
+    networks:
+      - mirador-network
+    profiles:
+      - proxy
+
+networks:
+  mirador-network:
+    driver: bridge
+    name: mirador-network
+
+volumes:
+  node_modules:
+    name: mirador-node-modules

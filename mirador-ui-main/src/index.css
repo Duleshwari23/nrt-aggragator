@@ -1,0 +1,165 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom Fonts */
+@font-face {
+  font-family: 'Figtree';
+  src: url('/fonts/Figtree-VariableFont_wght.ttf') format('truetype');
+  font-weight: 300 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'DM Sans';
+  src: url('/fonts/DMSans_18pt-Regular.woff') format('woff');
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root { 
+  font-family: 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+}
+
+/* Dark theme (default) */
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  font-family: Figtree, system-ui, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+/* Light theme (default) */
+body {
+  background-color: #ffffff;
+  color: #0f172a;
+}
+
+/* Dark theme */
+body.dark {
+  background-color: #11161d;
+  color: #f1f5f9;
+}
+
+a { 
+  color: #1b7fff;
+}
+
+/* iOS-style jiggle animation for widget edit mode */
+@keyframes jiggle {
+  0%   { transform: rotate(-0.6deg) translateY(0); }
+  50%  { transform: rotate(0.6deg) translateY(-0.5px); }
+  100% { transform: rotate(-0.6deg) translateY(0); }
+}
+
+.animate-jiggle {
+  animation: jiggle 0.18s ease-in-out infinite;
+  transform-origin: center center;
+}
+
+/* React Grid Layout styles */
+.react-grid-layout {
+  position: relative;
+}
+
+.react-grid-item {
+  transition: all 200ms ease;
+  transition-property: left, top, width, height;
+}
+
+.react-grid-item:not(.react-grid-placeholder) {
+  background: transparent;
+  border: none;
+}
+
+.react-grid-item.cssTransforms {
+  transition-property: transform, width, height;
+}
+
+.react-grid-item > .react-resizable-handle {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  bottom: 0;
+  right: 0;
+  background: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNiIgaGVpZ2h0PSI2IiB2aWV3Qm94PSIwIDAgNiA2IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8ZG90cyBmaWxsPSIjOTk5IiBkPSJtMTUgMTJBMyAzIDAgMSAwIDkgNmEzIDMgMCAwIDAgNiA2WiIvPgo8L3N2Zz4K');
+  background-position: bottom right;
+  padding: 0 3px 3px 0;
+  background-repeat: no-repeat;
+  background-origin: content-box;
+  box-sizing: border-box;
+  cursor: se-resize;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.react-grid-item:hover > .react-resizable-handle {
+  opacity: 1;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: rgba(59, 130, 246, 0.1);
+  border: 2px dashed rgba(59, 130, 246, 0.3);
+  border-radius: 16px;
+  opacity: 0.2;
+  transition-duration: 100ms;
+  z-index: 2;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  -o-user-select: none;
+  user-select: none;
+}
+
+/* Widget specific styles */
+.widget-container {
+  touch-action: none;
+}
+
+.widget-container:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.5);
+  outline-offset: 2px;
+  border-radius: 16px;
+}
+
+/* Drag handle styles */
+.drag-handle {
+  cursor: grab;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Widget grid hover effects */
+.widgets-grid .widget-container:hover .react-resizable-handle {
+  opacity: 0.7;
+}
+
+/* Smooth transitions for layout changes */
+.widgets-grid .react-grid-item {
+  transition: transform 200ms ease, box-shadow 200ms ease;
+}
+
+.widgets-grid .react-grid-item.react-draggable-dragging {
+  transition: none;
+  z-index: 3;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* iOS-style blur backdrop for widgets */
+.widget-backdrop-blur {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* Focus styles for keyboard navigation */
+.widget-container[tabindex="0"]:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 4px;
+}

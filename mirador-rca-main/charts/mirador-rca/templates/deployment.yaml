@@ -1,0 +1,141 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mirador-rca.fullname" . }}
+  labels:
+    {{- include "mirador-rca.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "mirador-rca.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mirador-rca.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "mirador-rca.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $runtimeSecrets := default (dict) .Values.runtimeSecrets }}
+      {{- $weaviateSecret := default (dict) $runtimeSecrets.weaviateAPIKey }}
+      {{- $cacheUserSecret := default (dict) $runtimeSecrets.cacheUsername }}
+      {{- $cachePasswordSecret := default (dict) $runtimeSecrets.cachePassword }}
+      containers:
+        - name: mirador-rca
+          image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: MIRADOR_RCA_CONFIG
+              value: /etc/mirador/config.yaml
+            {{- if .Values.config.cache.addr }}
+            - name: MIRADOR_RCA_CACHE_ADDR
+              value: {{ .Values.config.cache.addr | quote }}
+            {{- end }}
+            {{- if and .Values.config.cache.username (not $cacheUserSecret.name) }}
+            - name: MIRADOR_RCA_CACHE_USERNAME
+              value: {{ .Values.config.cache.username | quote }}
+            {{- end }}
+            {{- if .Values.config.cache.db }}
+            - name: MIRADOR_RCA_CACHE_DB
+              value: "{{ .Values.config.cache.db }}"
+            {{- end }}
+            {{- if .Values.config.cache.tls }}
+            - name: MIRADOR_RCA_CACHE_TLS
+              value: "true"
+            {{- end }}
+            {{- if $weaviateSecret.name }}
+            - name: MIRADOR_RCA_WEAVIATE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $weaviateSecret.name }}
+                  key: {{ default "apiKey" $weaviateSecret.key }}
+            {{- end }}
+            {{- if $cacheUserSecret.name }}
+            - name: MIRADOR_RCA_CACHE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $cacheUserSecret.name }}
+                  key: {{ default "username" $cacheUserSecret.key }}
+            {{- end }}
+            {{- if $cachePasswordSecret.name }}
+            - name: MIRADOR_RCA_CACHE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $cachePasswordSecret.name }}
+                  key: {{ default "password" $cachePasswordSecret.key }}
+            {{- end }}
+            {{- range .Values.extraEnv }}
+            {{ toYaml (list .) | nindent 12 }}
+            {{- end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: mirador-config
+              mountPath: /etc/mirador
+              readOnly: true
+            {{- range .Values.extraVolumeMounts }}
+            {{ toYaml (list .) | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: mirador-config
+          configMap:
+            name: {{ include "mirador-rca.fullname" . }}-config
+        {{- range .Values.extraVolumes }}
+        {{ toYaml (list .) | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

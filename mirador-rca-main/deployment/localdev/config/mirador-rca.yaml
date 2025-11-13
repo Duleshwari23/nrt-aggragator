@@ -1,0 +1,40 @@
+server:
+  address: ":50051"
+  metricsAddress: ":2112"
+  gracefulTimeout: 10s
+
+clients:
+  core:
+    baseURL: "http://core-mock:8080"
+    metricsPath: "/api/v1/rca/metrics"
+    logsPath: "/api/v1/rca/logs"
+    tracesPath: "/api/v1/rca/traces"
+    serviceGraphPath: "/api/v1/rca/service-graph"
+    timeout: 3s
+
+weaviate:
+  endpoint: "http://weaviate:8080"
+  apiKey: ""
+  timeout: 5s
+
+cache:
+  enabled: true
+  addr: "valkey:6379"
+  username: ""
+  password: ""
+  db: 0
+  dialTimeout: 2s
+  readTimeout: 500ms
+  writeTimeout: 500ms
+  maxRetries: 2
+  similarIncidentsTTL: 60s
+  patternsTTL: 120s
+  serviceGraphTTL: 120s
+  tls: false
+
+logging:
+  level: debug
+  json: false
+
+rules:
+  path: "configs/rules/default.yaml"

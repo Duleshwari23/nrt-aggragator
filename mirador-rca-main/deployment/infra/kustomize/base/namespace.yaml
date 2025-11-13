@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mirador-rca
+  labels:
+    app.kubernetes.io/name: mirador-rca
+    app.kubernetes.io/part-of: mirador-rca

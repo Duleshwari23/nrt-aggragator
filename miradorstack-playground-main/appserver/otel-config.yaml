@@ -1,0 +1,54 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'node'
+          scrape_interval: 5s
+          static_configs:
+            - targets: ['node-exporter:9100']
+        - job_name: 'redis'
+          scrape_interval: 5s
+          static_configs:
+            - targets: ['redis-exporter:9121']
+        - job_name: 'cassandra'
+          scrape_interval: 5s
+          static_configs:
+            - targets: ['cassandra-jmx-exporter:7070']
+
+processors:
+  batch:
+
+exporters:
+  otlp:
+    endpoint: "10.0.0.12:4317"
+    tls:
+      insecure: true
+
+  prometheusremotewrite:
+    endpoint: "http://10.0.0.12:8428/api/v1/write"
+    resource_to_telemetry_conversion:
+      enabled: true # Convert resource attributes to metric labels
+
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [batch]
+      exporters: [prometheusremotewrite, debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp, debug]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp, debug]

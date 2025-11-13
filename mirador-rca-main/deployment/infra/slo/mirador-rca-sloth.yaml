@@ -1,0 +1,64 @@
+apiVersion: sloth.slok.dev/v1
+kind: PrometheusServiceLevel
+metadata:
+  name: mirador-rca
+  labels:
+    app.kubernetes.io/name: mirador-rca
+spec:
+  service: mirador-rca
+  labels:
+    team: miradorstack
+    tier: backend
+  alerting:
+    pageAlert:
+      labels:
+        severity: critical
+      annotations:
+        summary: "{{ .slo }} SLO burn detected"
+        runbook_url: "https://github.com/platformbuilds/mirador-rca/blob/main/docs/ops-observability.md"
+    ticketAlert:
+      labels:
+        severity: warning
+      annotations:
+        summary: "{{ .slo }} SLO warning burn detected"
+        runbook_url: "https://github.com/platformbuilds/mirador-rca/blob/main/docs/ops-observability.md"
+  slos:
+    - name: investigation-latency
+      objective: 96
+      description: ">=96% of investigations complete within four seconds"
+      sli:
+        events:
+          errorQuery: |
+            sum(rate(mirador_rca_investigation_seconds_bucket{le="+Inf"}[{{ .window }}]))
+              - sum(rate(mirador_rca_investigation_seconds_bucket{le="4"}[{{ .window }}]))
+          totalQuery: |
+            sum(rate(mirador_rca_investigation_seconds_bucket{le="+Inf"}[{{ .window }}]))
+      alerting:
+        name: investigation-latency
+        pageAlert:
+          annotations:
+            summary: "Investigation latency SLO burning too fast"
+            runbook_url: "https://github.com/platformbuilds/mirador-rca/blob/main/docs/ops-observability.md"
+        ticketAlert:
+          annotations:
+            summary: "Investigation latency SLO warning burn"
+            runbook_url: "https://github.com/platformbuilds/mirador-rca/blob/main/docs/ops-observability.md"
+    - name: investigation-success-rate
+      objective: 99.5
+      description: ">=99.5% of investigations succeed"
+      sli:
+        events:
+          errorQuery: |
+            sum(rate(mirador_rca_investigations_total{outcome="error"}[{{ .window }}]))
+          totalQuery: |
+            sum(rate(mirador_rca_investigations_total[{{ .window }}]))
+      alerting:
+        name: investigation-success-rate
+        pageAlert:
+          annotations:
+            summary: "Investigation success SLO burning too fast"
+            runbook_url: "https://github.com/platformbuilds/mirador-rca/blob/main/docs/ops-observability.md"
+        ticketAlert:
+          annotations:
+            summary: "Investigation success SLO warning burn"
+            runbook_url: "https://github.com/platformbuilds/mirador-rca/blob/main/docs/ops-observability.md"

@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: mirador-rca
+resources:
+  - ../../base
+secretGenerator:
+  - name: valkey-auth
+    namespace: mirador-rca
+    behavior: replace
+    literals:
+      - username=mirador
+      - password=REPLACE_WITH_SECRET
+patches:
+  - path: weaviate-deployment-patch.yaml
+  - path: valkey-statefulset-patch.yaml
+  - path: storage-pvc-patch.yaml

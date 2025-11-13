@@ -1,0 +1,15 @@
+rules:
+  - id: cpu_hotspot
+    match:
+      service: "checkout"
+      selector_contains:
+        - "cpu"
+    recommendations:
+      - "Scale checkout deployment"
+      - "Check resource limits and throttling"
+  - id: error_spike
+    match:
+      severity: "error"
+    recommendations:
+      - "Inspect recent logs for regression"
+      - "Roll back latest release if necessary"

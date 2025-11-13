@@ -1,0 +1,22 @@
+---
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+rules:
+  - pattern: "org.apache.cassandra.metrics<type=(.+), name=(.+), scope=(.+), keyspace=(.+), columnfamily=(.+)>"
+    name: cassandra_$1_$2
+    labels:
+      scope: "$3"
+      keyspace: "$4"
+      columnfamily: "$5"
+  - pattern: "org.apache.cassandra.metrics<type=(.+), name=(.+), scope=(.+), keyspace=(.+)>"
+    name: cassandra_$1_$2
+    labels:
+      scope: "$3"
+      keyspace: "$4"
+  - pattern: "org.apache.cassandra.metrics<type=(.+), name=(.+), scope=(.+)>"
+    name: cassandra_$1_$2
+    labels:
+      scope: "$3"
+  - pattern: "org.apache.cassandra.metrics<type=(.+), name=(.+)>"
+    name: cassandra_$1_$2
+  - pattern: ".*"

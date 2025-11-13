@@ -1,0 +1,28 @@
+# Simplified Unified Dockerfile - Frontend + Mock API in one container
+FROM node:20-alpine
+
+# Create app directory
+WORKDIR /app
+
+# Install pnpm
+RUN npm install -g pnpm
+
+# Copy and build frontend
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+# Copy and setup startup script
+COPY start-unified.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:3000/health.html || exit 1
+
+# Start services
+CMD ["/app/start.sh"]
