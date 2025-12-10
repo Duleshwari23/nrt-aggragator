@@ -1,7 +1,7 @@
 project = 'MIRADOR-CORE'
-copyright_str = '2025, PlatformBuilds'
+copyright_str = '2025, PlatformBuilds Global Private Limited'
 author = 'PlatformBuilds Team'
-release = '7.0.0'
+release = '9.0.0'
 
 # Set copyright using the string variable
 copyright = copyright_str
@@ -27,13 +27,15 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
+html_logo = '_static/logo.svg'
 
 # -- Options for intersphinx extension ---------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-intersphinx
 
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3', None),
-    'golang': ('https://pkg.go.dev', None),
+    # Note: Go documentation doesn't provide intersphinx support
+    # Removed golang intersphinx mapping to avoid 404 errors
 }
 
 # -- Options for MyST (Markdown) parser -------------------------------------
@@ -46,7 +48,6 @@ myst_enable_extensions = [
     'fieldlist',
     'html_admonition',
     'html_image',
-    'linkify',
     'replacements',
     'smartquotes',
     'strikethrough',
@@ -56,6 +57,23 @@ myst_enable_extensions = [
 
 myst_heading_anchors = 3
 
+# Configure code block highlighting
+myst_highlight_code_blocks = True
+myst_code_block_default_language = 'text'  # Default to plain text to avoid auto-detection issues
+
 # -- Custom configuration ---------------------------------------------------
 
 # Add any custom configuration here
+
+# Configure Pygments for better syntax highlighting
+pygments_options = {
+    'stripnl': False,
+    'stripall': False,
+    'ensurenl': False,
+}
+
+# Suppress highlighting warnings for code blocks
+highlight_options = {
+    'python3': True,
+    'linenothreshold': 5,
+}

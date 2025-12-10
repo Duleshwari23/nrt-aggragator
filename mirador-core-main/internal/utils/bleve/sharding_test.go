@@ -8,11 +8,12 @@ import (
 	"time"
 
 	"github.com/blevesearch/bleve/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/platformbuilds/mirador-core/internal/utils/bleve/mapping"
 	"github.com/platformbuilds/mirador-core/internal/utils/bleve/storage"
 	"github.com/platformbuilds/mirador-core/pkg/logger"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func setupTestShardManager(t *testing.T, numShards int) (*ShardManager, func()) {
@@ -59,7 +60,7 @@ func TestShardManager_InitializeShards(t *testing.T) {
 	manager, cleanup := setupTestShardManager(t, 3)
 	defer cleanup()
 
-	err := manager.InitializeShards("test-tenant")
+	err := manager.InitializeShards()
 	require.NoError(t, err)
 
 	// Check that shards were created
@@ -67,7 +68,7 @@ func TestShardManager_InitializeShards(t *testing.T) {
 	assert.Len(t, stats, 3)
 
 	for i := 0; i < 3; i++ {
-		shardID := fmt.Sprintf("tenant_test-tenant_shard_%d", i)
+		shardID := fmt.Sprintf("shard_%d", i)
 		shardStats, exists := stats[shardID]
 		assert.True(t, exists, "Shard %s should exist", shardID)
 
@@ -81,26 +82,26 @@ func TestShardManager_IndexDocuments(t *testing.T) {
 	manager, cleanup := setupTestShardManager(t, 2)
 	defer cleanup()
 
-	err := manager.InitializeShards("test-tenant")
+	err := manager.InitializeShards()
 	require.NoError(t, err)
 
 	// Create test documents
 	documents := []mapping.IndexableDocument{
 		{
 			ID:   "doc1",
-			Data: mapping.LogDocument{TenantID: "test-tenant", Message: "test message 1"},
+			Data: mapping.LogDocument{Message: "test message 1"},
 		},
 		{
 			ID:   "doc2",
-			Data: mapping.LogDocument{TenantID: "test-tenant", Message: "test message 2"},
+			Data: mapping.LogDocument{Message: "test message 2"},
 		},
 		{
 			ID:   "doc3",
-			Data: mapping.LogDocument{TenantID: "test-tenant", Message: "test message 3"},
+			Data: mapping.LogDocument{Message: "test message 3"},
 		},
 	}
 
-	err = manager.IndexDocuments(documents, "test-tenant")
+	err = manager.IndexDocuments(documents)
 	require.NoError(t, err)
 
 	// Check that documents were distributed across shards
@@ -118,24 +119,24 @@ func TestShardManager_Search(t *testing.T) {
 	manager, cleanup := setupTestShardManager(t, 2)
 	defer cleanup()
 
-	err := manager.InitializeShards("test-tenant")
+	err := manager.InitializeShards()
 	require.NoError(t, err)
 
 	// Index a test document
 	documents := []mapping.IndexableDocument{
 		{
 			ID:   "search_test_doc",
-			Data: mapping.LogDocument{TenantID: "test-tenant", Message: "searchable content"},
+			Data: mapping.LogDocument{Message: "searchable content"},
 		},
 	}
 
-	err = manager.IndexDocuments(documents, "test-tenant")
+	err = manager.IndexDocuments(documents)
 	require.NoError(t, err)
 
 	// Perform a search
 	query := bleve.NewQueryStringQuery("searchable")
 	request := bleve.NewSearchRequest(query)
-	result, err := manager.Search(request, "test-tenant")
+	result, err := manager.Search(request)
 	require.NoError(t, err)
 
 	// Should find the document
@@ -146,7 +147,7 @@ func TestShardManager_GetShardStats(t *testing.T) {
 	manager, cleanup := setupTestShardManager(t, 2)
 	defer cleanup()
 
-	err := manager.InitializeShards("test-tenant")
+	err := manager.InitializeShards()
 	require.NoError(t, err)
 
 	stats := manager.GetShardStats()
@@ -166,7 +167,7 @@ func TestShardManager_Close(t *testing.T) {
 	manager, _ := setupTestShardManager(t, 2)
 	// Don't use cleanup since we're testing Close() explicitly
 
-	err := manager.InitializeShards("test-tenant")
+	err := manager.InitializeShards()
 	require.NoError(t, err)
 
 	// Close should not error

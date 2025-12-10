@@ -4,18 +4,18 @@ port: 8010
 log_level: warn
 
 database:
-  victoria_metrics:
+  victoriametrics:
     endpoints:
       - "http://vm-select-0.vm-select.mirador.svc.cluster.local:8481"
       - "http://vm-select-1.vm-select.mirador.svc.cluster.local:8481"
       - "http://vm-select-2.vm-select.mirador.svc.cluster.local:8481"
     timeout: 30000
-  victoria_logs:
+  victorialogs:
     endpoints:
       - "http://vl-select-0.vl-select.mirador.svc.cluster.local:9428"
       - "http://vl-select-1.vl-select.mirador.svc.cluster.local:9428"
     timeout: 30000
-  victoria_traces:
+  victoriatraces:
     endpoints:
       - "http://vt-select-0.vt-select.mirador.svc.cluster.local:10428"
       - "http://vt-select-1.vt-select.mirador.svc.cluster.local:10428"
@@ -40,31 +40,18 @@ grpc:
     rules_path: "/etc/mirador/alert-rules.yaml"
     timeout: 30000
 
-auth:
-  ldap:
-    url: "ldap://ldap.company.com"
-    base_dn: "dc=company,dc=com"
-    username: "cn=mirador,ou=services,dc=company,dc=com"
-    enabled: true
-  oauth:
-    client_id: "mirador-core-prod"
-    redirect_url: "https://mirador.company.com/auth/callback"
-    issuer: "https://auth.company.com"
-    enabled: true
-  rbac:
-    enabled: true
-    admin_role: "mirador-admin"
-  jwt:
-    expiry_minutes: 480 # 8 hours
+auth: {}
+  # Mirador-core is designed to run behind an external API gateway or service mesh
+  # that handles authentication and authorization
 
 cache:
   nodes:
-    - "redis-cluster-0.redis-cluster.mirador.svc.cluster.local:6379"
-    - "redis-cluster-1.redis-cluster.mirador.svc.cluster.local:6379"
-    - "redis-cluster-2.redis-cluster.mirador.svc.cluster.local:6379"
-    - "redis-cluster-3.redis-cluster.mirador.svc.cluster.local:6379"
-    - "redis-cluster-4.redis-cluster.mirador.svc.cluster.local:6379"
-    - "redis-cluster-5.redis-cluster.mirador.svc.cluster.local:6379"
+    - "valkey-cluster-0.valkey-cluster.mirador.svc.cluster.local:6379"
+    - "valkey-cluster-1.valkey-cluster.mirador.svc.cluster.local:6379"
+    - "valkey-cluster-2.valkey-cluster.mirador.svc.cluster.local:6379"
+    - "valkey-cluster-3.valkey-cluster.mirador.svc.cluster.local:6379"
+    - "valkey-cluster-4.valkey-cluster.mirador.svc.cluster.local:6379"
+    - "valkey-cluster-5.valkey-cluster.mirador.svc.cluster.local:6379"
   ttl: 600 # 10 minutes in production
   db: 0
 
@@ -81,13 +68,10 @@ cors:
   allowed_headers:
     - "Content-Type"
     - "Authorization"
-    - "X-Tenant-ID"
     - "X-User-ID"
     - "X-Request-ID"
   exposed_headers:
     - "X-Cache"
-    - "X-Rate-Limit-Remaining"
-    - "X-Rate-Limit-Reset"
     - "X-Execution-Time"
   allow_credentials: true
   max_age: 86400 # 24 hours
@@ -142,6 +126,16 @@ search:
       memory_cache_ratio: 0.3
       disk_cache_ratio: 0.7
       max_concurrent_queries: 50
+    metrics_sync:
+      enabled: true
+      strategy: "hybrid"  # Use hybrid strategy in production
+      interval: 15m
+      full_sync_interval: 24h
+      batch_size: 2000  # Larger batches for production
+      max_retries: 5    # More retries in production
+      retry_delay: 30s
+      time_range_lookback: 2h  # Longer lookback for production
+      shard_count: 6  # More shards for production
 
 # Unified Query Engine Configuration (Phase 1.5)
 unified_query:
@@ -154,3 +148,86 @@ unified_query:
 uploads:
   # Bulk CSV upload limit (bytes); default 5 MiB.
   bulk_max_bytes: 5242880
+
+# API Key Management Configuration (Production)
+api_keys:
+  enabled: true
+  # Production defaults - more restrictive for security
+  default_limits:
+    max_keys_per_user: 5
+    max_keys_per_tenant_admin: 15
+    max_keys_per_global_admin: 50
+  tenant_limits: []
+  global_limits_override: null
+  # More restrictive in production
+  allow_tenant_override: false  # Disable tenant overrides in production
+  allow_admin_override: true
+  # Longer maximum expiry for production keys
+  max_expiry_days: 730  # 2 years maximum
+  min_expiry_days: 7
+  enforce_expiry: true  # Require expiry in production
+
+# MIRA (Mirador Intelligent Research Assistant) - AI-powered RCA Explanations
+# MIRA-001: Production configuration with rate limiting
+mira:
+  enabled: true  # Enabled in production
+  provider: "openai"  # OpenAI for production reliability
+  timeout: 30s
+  
+  cache_strategy:
+    enabled: true
+    use_valkey_for_fast_cache: true
+    ttl: 3600  # 1 hour cache for production efficiency
+  
+  rate_limit:
+    enabled: true  # Enforced in production
+    requests_per_minute: 10
+    burst: 5
+  
+  openai:
+    api_key: "${OPENAI_API_KEY}"
+    model: "gpt-4"  # Best quality for production
+    max_tokens: 2000
+  
+  anthropic:
+    api_key: "${ANTHROPIC_API_KEY}"
+    model: "claude-3-5-sonnet-20241022"
+    max_tokens: 2000
+  
+  vllm:
+    endpoint: "http://vllm-server.mirador:8000/v1/completions"
+    model: "meta-llama/Llama-3.1-70B-Instruct"
+    max_tokens: 2000
+  
+  ollama:
+    endpoint: "http://ollama-server.mirador:11434/api/generate"
+    model: "llama3.1:70b"
+    max_tokens: 2000
+  
+  prompt_template: |
+    You are MIRA (Mirador Intelligent Research Assistant), an AI assistant that explains complex technical root cause analysis to non-technical stakeholders.
+
+    Below is RCA data in TOON (Token Oriented Object Notation) format, which describes an incident:
+
+    {{.TOONData}}
+
+    Key Details:
+    - Impact Service: {{.ImpactService}}
+    - Metric: {{.MetricName}}
+    - Severity: {{.Severity}}
+    - Anomaly Score: {{.AnomalyScore}}
+    {{- if .RootCauseService}}
+    - Root Cause Service: {{.RootCauseService}}
+    - Root Cause Component: {{.RootCauseComponent}}
+    {{- end}}
+    {{- if .TopChainPath}}
+    - Causal Chain: {{.TopChainPath}}
+    {{- end}}
+
+    Please provide a clear, non-technical explanation of:
+    1. What happened (in simple terms)
+    2. What caused it (the root cause)
+    3. Which services/components were affected
+    4. Why this matters to the business
+
+    Use simple language suitable for executives or non-technical team members. Avoid jargon, acronyms, and technical metrics unless absolutely necessary.

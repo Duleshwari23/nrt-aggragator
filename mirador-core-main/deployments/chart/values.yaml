@@ -5,7 +5,7 @@ replicaCount: 3
 image:
   repository: platformbuilds/mirador-core
   # Use a multi-arch tag (linux/amd64 + linux/arm64) so nodes pull the correct architecture automatically
-  tag: v3.0.0
+  tag: v9.0.0
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -16,10 +16,6 @@ serviceAccount:
   create: true
   name: ""
   annotations: {}
-
-rbac:
-  create: true
-  clusterWide: true
 
 podAnnotations:
   prometheus.io/scrape: "true"
@@ -102,9 +98,9 @@ extraVolumes: []
 waitFor:
   valkey:
     enabled: false # default disabled to avoid pulling extra images
-    # Image providing redis-cli to probe Valkey readiness
+    # Image providing valkey-cli to probe Valkey readiness
     image:
-      repository: bitnami/redis
+      repository: bitnami/valkey
       tag: "7.2.5-debian-12-r0"
       pullPolicy: IfNotPresent
     # Max seconds to wait before giving up (pod will restart per restartPolicy)
@@ -118,15 +114,17 @@ envFrom: [] # e.g., [{ secretRef: { name: my-secrets } }]
 # expects as environment variables. If you already manage secrets, keep create=false
 # and reference them via `envFrom` above.
 secrets:
-  create: false
+  create: true  # Enable secrets creation
   name: "" # defaults to <release>-mirador-env when create=true
   data:
     # Keys consumed by MIRADOR-CORE (see internal/config/secrets.go):
-    # JWT_SECRET, LDAP_PASSWORD, SMTP_PASSWORD, REDIS_PASSWORD, VM_PASSWORD
-    JWT_SECRET: ""
+    # LDAP_PASSWORD: Password for LDAP bind DN
     LDAP_PASSWORD: ""
+    # SMTP_PASSWORD: Password for SMTP authentication
     SMTP_PASSWORD: ""
+    # VALKEY_PASSWORD: Password for Valkey authentication
     REDIS_PASSWORD: ""
+    # VM_PASSWORD: Password for VictoriaMetrics authentication
     VM_PASSWORD: ""
 
 config:
@@ -190,20 +188,11 @@ mirador:
       rules_path: "/etc/mirador/alert-rules.yaml"
       timeout: 30000
 
-  auth:
-    enabled: true
-    ldap:
-      url: "ldap://ldap.company.com"
-      base_dn: "dc=company,dc=com"
-    rbac:
-      enabled: true
-      admin_role: "mirador-admin"
-
   cache:
-    # Cache nodes for Valkey/Redis. Leave empty when using the embedded Bitnami
+    # Cache nodes for Valkey. Leave empty when using the embedded Bitnami
     # Valkey subchart (valkey.enabled=true); the chart will auto-wire the
     # headless service ("<release>-valkey-headless:6379") into the rendered config.
-    # Otherwise, specify your external Valkey/Redis endpoints here.
+    # Otherwise, specify your external Valkey endpoints here.
     nodes: []
     ttl: 300
 
@@ -238,9 +227,9 @@ mirador:
         disk_cache_ratio: 0.5    # Disk cache ratio (0.0-1.0)
         max_concurrent_queries: 50  # Maximum concurrent queries
 
-  # Weaviate connection for schema/semantic features (migration target)
+  # Weaviate connection for schema/semantic features
   weaviate:
-    enabled: false
+    enabled: true
     scheme: http
     host: weaviate.mirador.svc.cluster.local
     port: 8080
@@ -461,7 +450,11 @@ weaviate:
   env:
     # Allow anonymous by default in-cluster; tighten in prod
     AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
-    DEFAULT_VECTORIZER_MODULE: "none" # use BYO vectors by default; set text2vec-* to auto-embed
+    # Default vectorizer module to enable automatic embedding generation for
+    # Kubernetes-based deployments. Change to "none" to opt-out when you use
+    # BYO embeddings (Valkey/other) or do not have a transformer inference
+    # backend available.
+    DEFAULT_VECTORIZER_MODULE: "text2vec-transformers"
     PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
     QUERY_DEFAULTS_LIMIT: "25"
     CLUSTER_GOSSIP_BIND_PORT: "7100"

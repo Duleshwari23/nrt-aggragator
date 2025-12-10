@@ -9,30 +9,35 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+
+	"github.com/platformbuilds/mirador-core/internal/logging"
 	"github.com/platformbuilds/mirador-core/internal/models"
-	"github.com/platformbuilds/mirador-core/pkg/logger"
+	corelogger "github.com/platformbuilds/mirador-core/pkg/logger"
 )
 
 type WebSocketHandler struct {
 	upgrader websocket.Upgrader
-	logger   logger.Logger
+	logger   logging.Logger
 	clients  map[string]*WebSocketClient
 }
 
 type WebSocketClient struct {
-	conn     *websocket.Conn
-	tenantID string
-	userID   string
-	streams  []string // metrics, alerts, predictions
+	conn   *websocket.Conn
+	send   chan []byte
+	logger logging.Logger
+	userID string
+	// streams: metrics, alerts
+	streams []string
 }
 
-func NewWebSocketHandler(logger logger.Logger) *WebSocketHandler {
+func NewWebSocketHandler(logger corelogger.Logger) *WebSocketHandler {
+	core := logging.FromCoreLogger(logger)
 	return &WebSocketHandler{
 		upgrader: websocket.Upgrader{
-			// TODO: tighten in prod (check Origin/Host, tenant, auth)
+			// TODO: tighten in prod (check Origin/Host, auth)
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
-		logger:  logger,
+		logger:  core,
 		clients: make(map[string]*WebSocketClient),
 	}
 }
@@ -48,10 +53,9 @@ func (h *WebSocketHandler) HandleMetricsStream(c *gin.Context) {
 
 	clientID := generateClientID()
 	client := &WebSocketClient{
-		conn:     conn,
-		tenantID: c.GetString("tenant_id"),
-		userID:   c.GetString("user_id"),
-		streams:  []string{"metrics"},
+		conn:    conn,
+		userID:  c.GetString("user_id"),
+		streams: []string{"metrics"},
 	}
 	h.clients[clientID] = client
 	defer delete(h.clients, clientID)
@@ -68,7 +72,7 @@ func (h *WebSocketHandler) HandleMetricsStream(c *gin.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			metrics, err := h.getLatestMetrics(client.tenantID)
+			metrics, err := h.getLatestMetrics()
 			if err != nil {
 				h.logger.Error("Failed to get latest metrics", "error", err)
 				continue
@@ -107,37 +111,14 @@ func (h *WebSocketHandler) HandleAlertsStream(c *gin.Context) {
 
 	clientID := generateClientID()
 	client := &WebSocketClient{
-		conn:     conn,
-		tenantID: c.GetString("tenant_id"),
-		userID:   c.GetString("user_id"),
-		streams:  []string{"alerts"},
+		conn:    conn,
+		userID:  c.GetString("user_id"),
+		streams: []string{"alerts"},
 	}
 	h.clients[clientID] = client
 	defer delete(h.clients, clientID)
 
 	h.streamAlerts(c.Request.Context(), client)
-}
-
-// HandlePredictionsStream - WebSocket endpoint for real-time AI predictions
-func (h *WebSocketHandler) HandlePredictionsStream(c *gin.Context) {
-	conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		h.logger.Error("WebSocket upgrade failed (predictions)", "error", err)
-		return
-	}
-	defer conn.Close()
-
-	clientID := generateClientID()
-	client := &WebSocketClient{
-		conn:     conn,
-		tenantID: c.GetString("tenant_id"),
-		userID:   c.GetString("user_id"),
-		streams:  []string{"predictions"},
-	}
-	h.clients[clientID] = client
-	defer delete(h.clients, clientID)
-
-	h.streamPredictions(c.Request.Context(), client)
 }
 
 // BroadcastAlert sends an alert to all connected WebSocket clients
@@ -148,7 +129,7 @@ func (h *WebSocketHandler) BroadcastAlert(alert *models.Alert) {
 		"timestamp": time.Now().Format(time.RFC3339),
 	}
 	for clientID, client := range h.clients {
-		if client.tenantID == alert.TenantID && contains(client.streams, "alerts") {
+		if contains(client.streams, "alerts") {
 			client.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := client.conn.WriteJSON(message); err != nil {
 				h.logger.Error("Failed to broadcast alert", "clientId", clientID, "error", err)
@@ -169,11 +150,10 @@ func generateClientID() string {
 
 // getLatestMetrics currently returns a placeholder structure.
 // Wire this to Valkey (or another source) later.
-func (h *WebSocketHandler) getLatestMetrics(tenantID string) (interface{}, error) {
+func (h *WebSocketHandler) getLatestMetrics() (interface{}, error) {
 	return map[string]any{
-		"tenantId": tenantID,
-		"series":   []any{}, // fill with real data points
-		"ts":       time.Now().UnixMilli(),
+		"series": []any{}, // fill with real data points
+		"ts":     time.Now().UnixMilli(),
 	}, nil
 }
 
@@ -189,25 +169,6 @@ func (h *WebSocketHandler) streamAlerts(ctx context.Context, client *WebSocketCl
 			_ = client.conn.WriteJSON(map[string]any{
 				"type": "heartbeat",
 				"data": map[string]any{"ts": time.Now().UnixMilli(), "stream": "alerts"},
-			})
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-// streamPredictions keeps the connection alive with heartbeats until ctx is done.
-// Replace with a real feed from PREDICT-ENGINE when available.
-func (h *WebSocketHandler) streamPredictions(ctx context.Context, client *WebSocketClient) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			client.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			_ = client.conn.WriteJSON(map[string]any{
-				"type": "heartbeat",
-				"data": map[string]any{"ts": time.Now().UnixMilli(), "stream": "predictions"},
 			})
 		case <-ctx.Done():
 			return

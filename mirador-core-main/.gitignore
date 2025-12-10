@@ -12,6 +12,7 @@ build/*
 
 # Server binary
 server
+mirador-core
 
 # Test binary, built with `go test -c`
 *.test
@@ -52,8 +53,17 @@ bin/
 bin/*
 bin/mirador-core-*
 
+# Documentation build artifacts
+docs/_build/
+
+# Test artifacts
+*.bolt
+
 # Local TestReports
 ./deployments/localdev/e2e-report.json 
 ./deployments/localdev/e2e-report.txt 
 deployments/localdev/e2e-report.json 
 deployments/localdev/e2e-report.txt 
+
+# Development files (local only)
+dev/

@@ -1,6 +1,8 @@
 package models
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -20,7 +22,6 @@ type UnifiedQuery struct {
 	ID        string     `json:"id"`
 	Type      QueryType  `json:"type"`
 	Query     string     `json:"query"`
-	TenantID  string     `json:"tenant_id,omitempty"`
 	StartTime *time.Time `json:"start_time,omitempty"`
 	EndTime   *time.Time `json:"end_time,omitempty"`
 	Timeout   string     `json:"timeout,omitempty"`
@@ -42,6 +43,40 @@ type CorrelationOptions struct {
 	TimeWindow      time.Duration          `json:"time_window"`
 	Engines         []QueryType            `json:"engines"`
 	Filters         map[string]interface{} `json:"filters,omitempty"`
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for CorrelationOptions
+func (c *CorrelationOptions) UnmarshalJSON(data []byte) error {
+	type Alias CorrelationOptions
+	aux := &struct {
+		TimeWindow interface{} `json:"time_window"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	// Handle TimeWindow parsing
+	switch v := aux.TimeWindow.(type) {
+	case string:
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid time_window duration string: %w", err)
+		}
+		c.TimeWindow = duration
+	case float64:
+		// Assume it's in seconds
+		c.TimeWindow = time.Duration(v) * time.Second
+	case nil:
+		// TimeWindow not provided, keep zero value
+	default:
+		return fmt.Errorf("invalid time_window type: %T", v)
+	}
+
+	return nil
 }
 
 // CacheOptions defines caching behavior for queries
@@ -130,9 +165,99 @@ type CacheCapabilities struct {
 	MaxTTL     time.Duration `json:"max_ttl"`
 }
 
+// UnmarshalJSON implements custom JSON unmarshaling for CacheCapabilities
+func (c *CacheCapabilities) UnmarshalJSON(data []byte) error {
+	type Alias CacheCapabilities
+	aux := &struct {
+		DefaultTTL interface{} `json:"default_ttl"`
+		MaxTTL     interface{} `json:"max_ttl"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	// Handle DefaultTTL parsing
+	switch v := aux.DefaultTTL.(type) {
+	case string:
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid default_ttl duration string: %w", err)
+		}
+		c.DefaultTTL = duration
+	case float64:
+		c.DefaultTTL = time.Duration(v) * time.Second
+	case nil:
+	default:
+		return fmt.Errorf("invalid default_ttl type: %T", v)
+	}
+
+	// Handle MaxTTL parsing
+	switch v := aux.MaxTTL.(type) {
+	case string:
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid max_ttl duration string: %w", err)
+		}
+		c.MaxTTL = duration
+	case float64:
+		c.MaxTTL = time.Duration(v) * time.Second
+	case nil:
+	default:
+		return fmt.Errorf("invalid max_ttl type: %T", v)
+	}
+
+	return nil
+}
+
 // EngineHealthStatus represents the health status of all engines
 type EngineHealthStatus struct {
 	OverallHealth string               `json:"overall_health"`
 	EngineHealth  map[QueryType]string `json:"engine_health"`
 	LastChecked   time.Time            `json:"last_checked"`
+}
+
+// QueryPlan represents a query execution plan
+type QueryPlan struct {
+	Steps []QueryPlanStep `json:"steps"`
+}
+
+// QueryPlanStep represents a single step in a query execution plan
+type QueryPlanStep struct {
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	Engine      string `json:"engine"`
+	Cost        int    `json:"cost,omitempty"`
+}
+
+// UQLQueryRequest represents a request to execute a UQL query
+type UQLQueryRequest struct {
+	Query *UnifiedQuery `json:"query"`
+}
+
+// UQLValidateRequest represents a request to validate UQL syntax
+type UQLValidateRequest struct {
+	Query string `json:"query"`
+}
+
+// UQLValidateResponse represents the response from UQL validation
+type UQLValidateResponse struct {
+	Valid bool   `json:"valid"`
+	Query string `json:"query"`
+	Error string `json:"error,omitempty"`
+}
+
+// UQLExplainRequest represents a request to explain a UQL query execution plan
+type UQLExplainRequest struct {
+	Query *UnifiedQuery `json:"query"`
+}
+
+// UQLExplainResponse represents the response from UQL explain
+type UQLExplainResponse struct {
+	Query string    `json:"query"`
+	Plan  QueryPlan `json:"plan"`
+	Error string    `json:"error,omitempty"`
 }

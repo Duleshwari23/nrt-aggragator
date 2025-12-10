@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
 	"github.com/platformbuilds/mirador-core/internal/metrics"
 	"github.com/platformbuilds/mirador-core/internal/models"
 	"github.com/platformbuilds/mirador-core/pkg/logger"
@@ -26,19 +27,17 @@ type Hub struct {
 }
 
 type Client struct {
-	hub      *Hub
-	conn     *websocket.Conn
-	send     chan []byte
-	tenantID string
-	userID   string
-	streams  map[string]bool // metrics, alerts, predictions, correlations
+	hub     *Hub
+	conn    *websocket.Conn
+	send    chan []byte
+	userID  string
+	streams map[string]bool // metrics, alerts, correlations
 }
 
 type Message struct {
 	Type      string      `json:"type"`
 	Data      interface{} `json:"data"`
 	Timestamp time.Time   `json:"timestamp"`
-	TenantID  string      `json:"tenant_id,omitempty"`
 }
 
 func NewHub(logger logger.Logger) *Hub {
@@ -62,12 +61,11 @@ func (h *Hub) Run(ctx context.Context) {
 			h.mu.Unlock()
 
 			for stream := range client.streams {
-				metrics.ActiveWebSocketConnections.WithLabelValues(stream, client.tenantID).Inc()
+				metrics.ActiveWebSocketConnections.WithLabelValues(stream).Inc()
 			}
 
 			h.logger.Info("WebSocket client connected",
 				"clientId", client.userID,
-				"tenant", client.tenantID,
 				"streams", getStreamNames(client.streams),
 			)
 
@@ -77,7 +75,7 @@ func (h *Hub) Run(ctx context.Context) {
 				delete(h.clients, client)
 				close(client.send)
 				for stream := range client.streams {
-					metrics.ActiveWebSocketConnections.WithLabelValues(stream, client.tenantID).Dec()
+					metrics.ActiveWebSocketConnections.WithLabelValues(stream).Dec()
 				}
 			}
 			h.mu.Unlock()
@@ -94,7 +92,7 @@ func (h *Hub) Run(ctx context.Context) {
 					delete(h.clients, client)
 					close(client.send)
 					for stream := range client.streams {
-						metrics.ActiveWebSocketConnections.WithLabelValues(stream, client.tenantID).Dec()
+						metrics.ActiveWebSocketConnections.WithLabelValues(stream).Dec()
 					}
 				}
 			}
@@ -112,7 +110,7 @@ func (h *Hub) Run(ctx context.Context) {
 //
 // Query params (optional):
 //   - streams: comma-separated list (e.g. "metrics,alerts")
-func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, upgrader websocket.Upgrader, tenantID, userID string) {
+func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, upgrader websocket.Upgrader, userID string) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.logger.Error("websocket upgrade failed", "error", err)
@@ -122,16 +120,15 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, upgrader websocket
 	streams := parseStreams(r.URL.Query().Get("streams"))
 	if len(streams) == 0 {
 		// default to all known streams if none requested explicitly
-		streams = map[string]bool{"metrics": true, "alerts": true, "predictions": true, "correlations": true}
+		streams = map[string]bool{"metrics": true, "alerts": true, "correlations": true}
 	}
 
 	client := &Client{
-		hub:      h,
-		conn:     conn,
-		send:     make(chan []byte, 256), // bounded buffer for backpressure
-		tenantID: tenantID,
-		userID:   firstNonEmpty(userID, randomID()),
-		streams:  streams,
+		hub:     h,
+		conn:    conn,
+		send:    make(chan []byte, 256), // bounded buffer for backpressure
+		userID:  firstNonEmpty(userID, randomID()),
+		streams: streams,
 	}
 
 	h.register <- client
@@ -147,7 +144,6 @@ func (h *Hub) BroadcastAlert(alert *models.Alert) {
 		Type:      "alert",
 		Data:      alert,
 		Timestamp: time.Now(),
-		TenantID:  alert.TenantID,
 	}
 	messageBytes, err := json.Marshal(message)
 	if err != nil {
@@ -157,34 +153,7 @@ func (h *Hub) BroadcastAlert(alert *models.Alert) {
 
 	h.mu.RLock()
 	for client := range h.clients {
-		if client.tenantID == alert.TenantID && client.streams["alerts"] {
-			select {
-			case client.send <- messageBytes:
-			default:
-				delete(h.clients, client)
-				close(client.send)
-			}
-		}
-	}
-	h.mu.RUnlock()
-}
-
-// BroadcastPrediction sends AI predictions to subscribed clients
-func (h *Hub) BroadcastPrediction(prediction *models.SystemFracture) {
-	message := Message{
-		Type:      "prediction",
-		Data:      prediction,
-		Timestamp: time.Now(),
-	}
-	messageBytes, err := json.Marshal(message)
-	if err != nil {
-		h.logger.Error("Failed to marshal prediction message", "predictionId", prediction.ID, "error", err)
-		return
-	}
-
-	h.mu.RLock()
-	for client := range h.clients {
-		if client.streams["predictions"] {
+		if client.streams["alerts"] {
 			select {
 			case client.send <- messageBytes:
 			default:

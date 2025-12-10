@@ -4,11 +4,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/platformbuilds/mirador-core/internal/version"
 	"gopkg.in/yaml.v3"
+
+	"github.com/platformbuilds/mirador-core/internal/version"
 )
 
 // resolveOpenAPIPath returns a readable path to openapi.yaml by checking common
@@ -31,6 +33,20 @@ func resolveOpenAPIPath() string {
 			return p
 		}
 	}
+	// As a last resort attempt to locate the file by searching up the
+	// filesystem starting from this source file's directory. This helps tests
+	// and other execution contexts where the working directory may be different.
+	if _, file, _, ok := runtime.Caller(0); ok {
+		dir := filepath.Dir(file)
+		for i := 0; i < 8; i++ { // climb up a few levels looking for api/openapi.yaml
+			cand := filepath.Join(dir, "api", "openapi.yaml")
+			if _, err := os.Stat(cand); err == nil {
+				return cand
+			}
+			dir = filepath.Dir(dir)
+		}
+	}
+
 	return "api/openapi.yaml"
 }
 

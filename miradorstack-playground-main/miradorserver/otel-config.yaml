@@ -31,15 +31,15 @@ exporters:
     verbosity: detailed
 
   prometheusremotewrite:
-    endpoint: http://victoriametrics:8428/api/v1/write
+    endpoint: http://miradorserver-victoriametrics-1:8428/api/v1/write
 
   elasticsearch:
-    endpoint: http://victorialogs:9428/insert/elasticsearch
+    endpoint: http://miradorserver-victorialogs-1:9428/insert/elasticsearch
     headers:
       VL-Msg-Field: Body
 
   otlphttp:
-    traces_endpoint: http://victoriatraces:10428/insert/opentelemetry/v1/traces
+    traces_endpoint: http://miradorserver-victoriatraces-1:10428/insert/opentelemetry/v1/traces
 
 
 service:

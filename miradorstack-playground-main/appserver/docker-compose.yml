@@ -82,7 +82,7 @@ services:
       - VALKEY_HOST=valkey
       - VALKEY_PORT=6379
       - OTEL_TRACES_EXPORTER=otlp
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://appserver-otel-collector:4318
       - OTEL_EXPORTER_OTLP_TIMEOUT=120000
       - OTEL_SERVICE_NAME=miradorstack-playground-app
       - OTEL_SERVICE_VERSION=1.0.0

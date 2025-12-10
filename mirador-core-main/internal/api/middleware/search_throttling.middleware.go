@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/platformbuilds/mirador-core/internal/models"
 	"github.com/platformbuilds/mirador-core/pkg/cache"
 	"github.com/platformbuilds/mirador-core/pkg/logger"
@@ -53,18 +54,12 @@ func (m *SearchQueryThrottlingMiddleware) ThrottleLogsQuery() gin.HandlerFunc {
 		// Reset the request body for the handler
 		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
-		tenantID := c.GetString("tenant_id")
-		if tenantID == "" {
-			tenantID = "anonymous"
-		}
-
 		// Calculate query complexity score
 		complexity := m.calculateLogsQueryComplexity(&req)
 
 		// Apply throttling based on complexity
-		if !m.checkThrottleLimit(c, tenantID, "logs", complexity) {
+		if !m.checkThrottleLimit(c, "logs", complexity) {
 			m.logger.Warn("Logs query throttled due to complexity",
-				"tenant", tenantID,
 				"complexity", complexity,
 				"query", req.Query)
 
@@ -107,18 +102,12 @@ func (m *SearchQueryThrottlingMiddleware) ThrottleTracesQuery() gin.HandlerFunc 
 		// Reset the request body for the handler
 		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
-		tenantID := c.GetString("tenant_id")
-		if tenantID == "" {
-			tenantID = "anonymous"
-		}
-
 		// Calculate query complexity score
 		complexity := m.calculateTracesQueryComplexity(&req)
 
 		// Apply throttling based on complexity
-		if !m.checkThrottleLimit(c, tenantID, "traces", complexity) {
+		if !m.checkThrottleLimit(c, "traces", complexity) {
 			m.logger.Warn("Traces query throttled due to complexity",
-				"tenant", tenantID,
 				"complexity", complexity,
 				"query", req.Query)
 
@@ -176,12 +165,13 @@ func (m *SearchQueryThrottlingMiddleware) calculateLogsQueryComplexity(req *mode
 
 	// Large time ranges increase complexity
 	if req.End > req.Start {
-		timeRangeHours := (req.End - req.Start) / (1000 * 60 * 60) // milliseconds to hours
-		if timeRangeHours > 24*30 {                                // More than 30 days
+		// milliseconds to hours
+		hours := float64(req.End-req.Start) / 1000 / 60 / 60
+		if hours > 24*30 {
 			complexity += 30
-		} else if timeRangeHours > 24*7 { // More than 7 days
+		} else if hours > 24*7 {
 			complexity += 15
-		} else if timeRangeHours > 24 { // More than 1 day
+		} else if hours > 24 {
 			complexity += 5
 		}
 	}
@@ -239,13 +229,13 @@ func (m *SearchQueryThrottlingMiddleware) calculateTracesQueryComplexity(req *mo
 
 	// Large time ranges
 	if !req.End.IsZero() && !req.Start.IsZero() {
-		timeRange := req.End.Time.Sub(req.Start.Time)
+		timeRange := req.End.AsTime().Sub(req.Start.AsTime())
 		hours := timeRange.Hours()
-		if hours > 24*30 { // More than 30 days
+		if hours > 24*30 {
 			complexity += 30
-		} else if hours > 24*7 { // More than 7 days
+		} else if hours > 24*7 {
 			complexity += 15
-		} else if hours > 24 { // More than 1 day
+		} else if hours > 24 {
 			complexity += 5
 		}
 	}
@@ -263,7 +253,7 @@ func (m *SearchQueryThrottlingMiddleware) calculateTracesQueryComplexity(req *mo
 }
 
 // checkThrottleLimit checks if the request should be throttled based on complexity
-func (m *SearchQueryThrottlingMiddleware) checkThrottleLimit(c *gin.Context, tenantID, queryType string, complexity int) bool {
+func (m *SearchQueryThrottlingMiddleware) checkThrottleLimit(c *gin.Context, queryType string, complexity int) bool {
 	// Define complexity thresholds
 	var maxComplexity int
 	switch queryType {
@@ -282,17 +272,17 @@ func (m *SearchQueryThrottlingMiddleware) checkThrottleLimit(c *gin.Context, ten
 
 	// For very high complexity queries, implement rate limiting
 	if complexity > maxComplexity*2 {
-		return m.checkRateLimit(c, tenantID, queryType, "high_complexity", 1, 5*time.Minute) // 1 request per 5 minutes
+		return m.checkRateLimit(c, queryType, "high_complexity", 1, 5*time.Minute) // 1 request per 5 minutes
 	}
 
 	// For moderately high complexity, allow but with reduced rate
-	return m.checkRateLimit(c, tenantID, queryType, "moderate_complexity", 5, time.Minute) // 5 requests per minute
+	return m.checkRateLimit(c, queryType, "moderate_complexity", 5, time.Minute) // 5 requests per minute
 }
 
 // checkRateLimit implements token bucket rate limiting using Valkey
-func (m *SearchQueryThrottlingMiddleware) checkRateLimit(c *gin.Context, tenantID, queryType, complexityLevel string, maxRequests int64, window time.Duration) bool {
-	// Create a unique key for this tenant, query type, and complexity level
-	key := fmt.Sprintf("throttle:%s:%s:%s:%d", tenantID, queryType, complexityLevel, time.Now().Unix()/int64(window.Seconds()))
+func (m *SearchQueryThrottlingMiddleware) checkRateLimit(c *gin.Context, queryType, complexityLevel string, maxRequests int64, window time.Duration) bool {
+	// Create a unique key on query type, and complexity level
+	key := fmt.Sprintf("throttle:%s:%s:%d", queryType, complexityLevel, time.Now().Unix()/int64(window.Seconds()))
 
 	// Get current request count
 	countBytes, err := m.valkeyCache.Get(c.Request.Context(), key)

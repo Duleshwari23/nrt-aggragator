@@ -5,17 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/platformbuilds/mirador-core/internal/utils"
-
 	"github.com/platformbuilds/mirador-core/internal/config"
 	"github.com/platformbuilds/mirador-core/internal/discovery"
+	"github.com/platformbuilds/mirador-core/internal/logging"
 	"github.com/platformbuilds/mirador-core/internal/models"
-	"github.com/platformbuilds/mirador-core/pkg/logger"
+	corelogger "github.com/platformbuilds/mirador-core/pkg/logger"
 )
 
 // VictoriaMetricsServices contains all VictoriaMetrics ecosystem services
@@ -32,7 +33,7 @@ type VictoriaTracesService struct {
 	endpoints []string
 	timeout   time.Duration
 	client    *http.Client
-	logger    logger.Logger
+	logger    logging.Logger
 	current   int // For round-robin load balancing
 	mu        sync.Mutex
 
@@ -48,7 +49,7 @@ type VictoriaTracesService struct {
 }
 
 // NewVictoriaTracesService creates a new VictoriaTraces service
-func NewVictoriaTracesService(cfg config.VictoriaTracesConfig, logger logger.Logger) *VictoriaTracesService {
+func NewVictoriaTracesService(cfg config.VictoriaTracesConfig, logger corelogger.Logger) *VictoriaTracesService {
 	return &VictoriaTracesService{
 		name:      cfg.Name,
 		endpoints: cfg.Endpoints,
@@ -56,7 +57,7 @@ func NewVictoriaTracesService(cfg config.VictoriaTracesConfig, logger logger.Log
 		client: &http.Client{
 			Timeout: time.Duration(cfg.Timeout) * time.Millisecond,
 		},
-		logger:    logger,
+		logger:    logging.FromCoreLogger(logger),
 		username:  cfg.Username,
 		password:  cfg.Password,
 		retries:   3,    // total attempts
@@ -75,10 +76,10 @@ func (s *VictoriaTracesService) SetChildren(children []*VictoriaTracesService) {
 }
 
 // GetOperations returns all operations for a specific service from VictoriaTraces
-func (s *VictoriaTracesService) GetOperations(ctx context.Context, serviceName, tenantID string) ([]string, error) {
+func (s *VictoriaTracesService) GetOperations(ctx context.Context, serviceName string) ([]string, error) {
 	// Multi-endpoint aggregation when multiple endpoints configured in this service
 	if func() bool { s.mu.Lock(); defer s.mu.Unlock(); return len(s.endpoints) > 1 }() {
-		return s.getOperationsMultiEndpoint(ctx, serviceName, tenantID)
+		return s.getOperationsMultiEndpoint(ctx, serviceName)
 	}
 
 	if len(s.children) > 0 {
@@ -93,7 +94,7 @@ func (s *VictoriaTracesService) GetOperations(ctx context.Context, serviceName, 
 		}, len(services))
 		for _, svc := range services {
 			go func(svc *VictoriaTracesService) {
-				o, e := svc.GetOperations(ctx, serviceName, tenantID)
+				o, e := svc.GetOperations(ctx, serviceName)
 				ch <- struct {
 					out []string
 					err error
@@ -124,14 +125,11 @@ func (s *VictoriaTracesService) GetOperations(ctx context.Context, serviceName, 
 	endpoint := s.selectEndpoint()
 	fullURL := fmt.Sprintf("%s/select/jaeger/api/services/%s/operations", endpoint, serviceName)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
 
-	if utils.IsUint32String(tenantID) {
-		req.Header.Set("AccountID", tenantID)
-	}
 	if s.username != "" {
 		req.SetBasicAuth(s.username, s.password)
 	}
@@ -158,7 +156,7 @@ func (s *VictoriaTracesService) GetOperations(ctx context.Context, serviceName, 
 }
 
 // getOperationsMultiEndpoint aggregates operations from all configured endpoints in this service
-func (s *VictoriaTracesService) getOperationsMultiEndpoint(ctx context.Context, serviceName, tenantID string) ([]string, error) {
+func (s *VictoriaTracesService) getOperationsMultiEndpoint(ctx context.Context, serviceName string) ([]string, error) {
 	// Get endpoints safely
 	s.mu.Lock()
 	endpoints := make([]string, len(s.endpoints))
@@ -187,7 +185,7 @@ func (s *VictoriaTracesService) getOperationsMultiEndpoint(ctx context.Context, 
 				retries:   s.retries,
 				backoffMS: s.backoffMS,
 			}
-			ops, e := tempSvc.getOperationsSingleEndpoint(ctx, serviceName, tenantID)
+			ops, e := tempSvc.getOperationsSingleEndpoint(ctx, serviceName)
 			ch <- out{ops, e}
 		}(endpoint)
 	}
@@ -213,18 +211,15 @@ func (s *VictoriaTracesService) getOperationsMultiEndpoint(ctx context.Context, 
 }
 
 // getOperationsSingleEndpoint gets operations from a single endpoint (used by multi-endpoint aggregation)
-func (s *VictoriaTracesService) getOperationsSingleEndpoint(ctx context.Context, serviceName, tenantID string) ([]string, error) {
+func (s *VictoriaTracesService) getOperationsSingleEndpoint(ctx context.Context, serviceName string) ([]string, error) {
 	endpoint := s.selectEndpoint()
 	fullURL := fmt.Sprintf("%s/select/jaeger/api/services/%s/operations", endpoint, serviceName)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
 
-	if utils.IsUint32String(tenantID) {
-		req.Header.Set("AccountID", tenantID)
-	}
 	if s.username != "" {
 		req.SetBasicAuth(s.username, s.password)
 	}
@@ -249,10 +244,10 @@ func (s *VictoriaTracesService) getOperationsSingleEndpoint(ctx context.Context,
 
 	return operations.Data, nil
 }
-func (s *VictoriaTracesService) GetServices(ctx context.Context, tenantID string) ([]string, error) {
+func (s *VictoriaTracesService) GetServices(ctx context.Context) ([]string, error) {
 	// Multi-endpoint aggregation when multiple endpoints configured in this service
 	if func() bool { s.mu.Lock(); defer s.mu.Unlock(); return len(s.endpoints) > 1 }() {
-		return s.getServicesMultiEndpoint(ctx, tenantID)
+		return s.getServicesMultiEndpoint(ctx)
 	}
 
 	if len(s.children) > 0 {
@@ -267,7 +262,7 @@ func (s *VictoriaTracesService) GetServices(ctx context.Context, tenantID string
 		}, len(services))
 		for _, svc := range services {
 			go func(svc *VictoriaTracesService) {
-				o, e := svc.GetServices(ctx, tenantID)
+				o, e := svc.GetServices(ctx)
 				ch <- struct {
 					out []string
 					err error
@@ -298,14 +293,11 @@ func (s *VictoriaTracesService) GetServices(ctx context.Context, tenantID string
 	endpoint := s.selectEndpoint()
 	fullURL := fmt.Sprintf("%s/select/jaeger/api/services", endpoint)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
 
-	if utils.IsUint32String(tenantID) {
-		req.Header.Set("AccountID", tenantID)
-	}
 	if s.username != "" {
 		req.SetBasicAuth(s.username, s.password)
 	}
@@ -332,7 +324,7 @@ func (s *VictoriaTracesService) GetServices(ctx context.Context, tenantID string
 }
 
 // getServicesMultiEndpoint aggregates services from all configured endpoints in this service
-func (s *VictoriaTracesService) getServicesMultiEndpoint(ctx context.Context, tenantID string) ([]string, error) {
+func (s *VictoriaTracesService) getServicesMultiEndpoint(ctx context.Context) ([]string, error) {
 	// Get endpoints safely
 	s.mu.Lock()
 	endpoints := make([]string, len(s.endpoints))
@@ -361,7 +353,7 @@ func (s *VictoriaTracesService) getServicesMultiEndpoint(ctx context.Context, te
 				retries:   s.retries,
 				backoffMS: s.backoffMS,
 			}
-			svcs, e := tempSvc.getServicesSingleEndpoint(ctx, tenantID)
+			svcs, e := tempSvc.getServicesSingleEndpoint(ctx)
 			ch <- out{svcs, e}
 		}(endpoint)
 	}
@@ -387,18 +379,15 @@ func (s *VictoriaTracesService) getServicesMultiEndpoint(ctx context.Context, te
 }
 
 // getServicesSingleEndpoint gets services from a single endpoint (used by multi-endpoint aggregation)
-func (s *VictoriaTracesService) getServicesSingleEndpoint(ctx context.Context, tenantID string) ([]string, error) {
+func (s *VictoriaTracesService) getServicesSingleEndpoint(ctx context.Context) ([]string, error) {
 	endpoint := s.selectEndpoint()
 	fullURL := fmt.Sprintf("%s/select/jaeger/api/services", endpoint)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
 
-	if utils.IsUint32String(tenantID) {
-		req.Header.Set("AccountID", tenantID)
-	}
 	if s.username != "" {
 		req.SetBasicAuth(s.username, s.password)
 	}
@@ -425,7 +414,7 @@ func (s *VictoriaTracesService) getServicesSingleEndpoint(ctx context.Context, t
 }
 
 // GetTrace retrieves a specific trace by ID
-func (s *VictoriaTracesService) GetTrace(ctx context.Context, traceID, tenantID string) (*models.Trace, error) {
+func (s *VictoriaTracesService) GetTrace(ctx context.Context, traceID string) (*models.Trace, error) {
 	if len(s.children) > 0 {
 		services := make([]*VictoriaTracesService, 0, len(s.children)+1)
 		if func() bool { s.mu.Lock(); defer s.mu.Unlock(); return len(s.endpoints) > 0 }() {
@@ -438,7 +427,7 @@ func (s *VictoriaTracesService) GetTrace(ctx context.Context, traceID, tenantID 
 		}, len(services))
 		for _, svc := range services {
 			go func(svc *VictoriaTracesService) {
-				t, e := svc.GetTrace(ctx, traceID, tenantID)
+				t, e := svc.GetTrace(ctx, traceID)
 				ch <- struct {
 					tr  *models.Trace
 					err error
@@ -463,14 +452,11 @@ func (s *VictoriaTracesService) GetTrace(ctx context.Context, traceID, tenantID 
 	endpoint := s.selectEndpoint()
 	fullURL := fmt.Sprintf("%s/select/jaeger/api/traces/%s", endpoint, traceID)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
 
-	if utils.IsUint32String(tenantID) {
-		req.Header.Set("AccountID", tenantID)
-	}
 	if s.username != "" {
 		req.SetBasicAuth(s.username, s.password)
 	}
@@ -574,14 +560,11 @@ func (s *VictoriaTracesService) SearchTraces(ctx context.Context, request *model
 	}
 
 	fullURL := fmt.Sprintf("%s/select/jaeger/api/traces?%s", endpoint, params.Encode())
-	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
 
-	if utils.IsUint32String(request.TenantID) {
-		req.Header.Set("AccountID", request.TenantID)
-	}
 	if s.username != "" {
 		req.SetBasicAuth(s.username, s.password)
 	}
@@ -593,12 +576,34 @@ func (s *VictoriaTracesService) SearchTraces(ctx context.Context, request *model
 	}
 	defer resp.Body.Close()
 
+	// If the server returned a non-200 status, include a short snippet
+	// of the response body in the error to aid debugging (often the
+	// VictoriaTraces/Jaeger endpoint returns plain-text errors).
+	if resp.StatusCode != http.StatusOK {
+		snippetBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		snippet := strings.TrimSpace(string(snippetBytes))
+		if snippet == "" {
+			return nil, fmt.Errorf("VictoriaTraces returned status %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("VictoriaTraces returned status %d: %q", resp.StatusCode, snippet)
+	}
+
 	var response struct {
 		Data []map[string]interface{} `json:"data"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to parse VictoriaTraces response: %w", err)
+	// Read a limited amount of the response body and attempt to parse it.
+	// If parsing fails, include a short body snippet in the error message.
+	// Allow larger JSON payloads from traces; set a generous cap to avoid
+	// truncation for normal traces responses while protecting memory.
+	const maxBody = 100 * 1024 * 1024 // 100 MiB
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read VictoriaTraces response: %w", err)
+	}
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		snippet := strings.TrimSpace(string(bodyBytes))
+		return nil, fmt.Errorf("failed to parse VictoriaTraces response: %w - body: %q", err, snippet)
 	}
 
 	return &models.TraceSearchResult{
@@ -697,14 +702,11 @@ func (s *VictoriaTracesService) searchTracesSingleEndpoint(ctx context.Context, 
 	}
 
 	fullURL := fmt.Sprintf("%s/select/jaeger/api/traces?%s", endpoint, params.Encode())
-	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
 
-	if utils.IsUint32String(request.TenantID) {
-		req.Header.Set("AccountID", request.TenantID)
-	}
 	if s.username != "" {
 		req.SetBasicAuth(s.username, s.password)
 	}
@@ -717,15 +719,25 @@ func (s *VictoriaTracesService) searchTracesSingleEndpoint(ctx context.Context, 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("VictoriaTraces returned status %d", resp.StatusCode)
+		snippetBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		snippet := strings.TrimSpace(string(snippetBytes))
+		if snippet == "" {
+			return nil, fmt.Errorf("VictoriaTraces returned status %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("VictoriaTraces returned status %d: %q", resp.StatusCode, snippet)
 	}
 
 	var response struct {
 		Data []map[string]interface{} `json:"data"`
 	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to parse VictoriaTraces response: %w", err)
+	const maxBodySingle = 100 * 1024 * 1024 // 100 MiB
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySingle))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read VictoriaTraces response: %w", err)
+	}
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		snippet := strings.TrimSpace(string(bodyBytes))
+		return nil, fmt.Errorf("failed to parse VictoriaTraces response: %w - body: %q", err, snippet)
 	}
 
 	return &models.TraceSearchResult{
@@ -734,8 +746,6 @@ func (s *VictoriaTracesService) searchTracesSingleEndpoint(ctx context.Context, 
 		SearchTime: 0, // Would be calculated from response time
 	}, nil
 }
-
-// (moved) tenant ID numeric check lives in utils.IsUint32String
 
 // HealthCheck checks VictoriaTraces health
 func (s *VictoriaTracesService) HealthCheck(ctx context.Context) error {
@@ -792,7 +802,7 @@ func (s *VictoriaTracesService) healthCheckMultiEndpoint(ctx context.Context) er
 
 func (s *VictoriaTracesService) healthCheckSelf(ctx context.Context) error {
 	endpoint := s.selectEndpoint()
-	req, err := http.NewRequestWithContext(ctx, "GET", endpoint+"/health", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint+"/health", http.NoBody)
 	if err != nil {
 		return err
 	}
@@ -823,7 +833,7 @@ func (s *VictoriaTracesService) selectEndpoint() string {
 }
 
 // NewVictoriaMetricsServices initializes all VictoriaMetrics services
-func NewVictoriaMetricsServices(dbConfig config.DatabaseConfig, logger logger.Logger) (*VictoriaMetricsServices, error) {
+func NewVictoriaMetricsServices(dbConfig config.DatabaseConfig, logger corelogger.Logger) (*VictoriaMetricsServices, error) {
 	// Initialize VictoriaMetrics service
 	metricsService := NewVictoriaMetricsService(dbConfig.VictoriaMetrics, logger)
 	// If multiple sources are configured, create child services and enable aggregation
@@ -877,7 +887,7 @@ func NewVictoriaMetricsServices(dbConfig config.DatabaseConfig, logger logger.Lo
 
 // StartDiscovery enables periodic DNS discovery for Victoria* services when configured.
 // It relies on headless Services (A/AAAA records per pod) or SRV records.
-func (s *VictoriaMetricsServices) StartDiscovery(ctx context.Context, dbConfig config.DatabaseConfig, log logger.Logger) {
+func (s *VictoriaMetricsServices) StartDiscovery(ctx context.Context, dbConfig config.DatabaseConfig, log corelogger.Logger) {
 	// VictoriaMetrics
 	if dbConfig.VictoriaMetrics.Discovery.Enabled && s.Metrics != nil {
 		cfg := dbConfig.VictoriaMetrics.Discovery

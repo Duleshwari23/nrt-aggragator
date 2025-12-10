@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/platformbuilds/mirador-core/internal/models"
 	"github.com/platformbuilds/mirador-core/pkg/logger"
 )
 
@@ -91,36 +90,6 @@ func (a *autoSwapCache) Delete(ctx context.Context, key string) error {
 	return a.withCurrent(func(c ValkeyCluster) error { return c.Delete(ctx, key) })
 }
 
-func (a *autoSwapCache) GetSession(ctx context.Context, sessionID string) (*models.UserSession, error) {
-	var out *models.UserSession
-	var retErr error
-	_ = a.withCurrent(func(c ValkeyCluster) error {
-		s, e := c.GetSession(ctx, sessionID)
-		out, retErr = s, e
-		return nil
-	})
-	return out, retErr
-}
-
-func (a *autoSwapCache) SetSession(ctx context.Context, session *models.UserSession) error {
-	return a.withCurrent(func(c ValkeyCluster) error { return c.SetSession(ctx, session) })
-}
-
-func (a *autoSwapCache) InvalidateSession(ctx context.Context, sessionID string) error {
-	return a.withCurrent(func(c ValkeyCluster) error { return c.InvalidateSession(ctx, sessionID) })
-}
-
-func (a *autoSwapCache) GetActiveSessions(ctx context.Context, tenantID string) ([]*models.UserSession, error) {
-	var out []*models.UserSession
-	var retErr error
-	_ = a.withCurrent(func(c ValkeyCluster) error {
-		s, e := c.GetActiveSessions(ctx, tenantID)
-		out, retErr = s, e
-		return nil
-	})
-	return out, retErr
-}
-
 func (a *autoSwapCache) CacheQueryResult(ctx context.Context, queryHash string, result interface{}, ttl time.Duration) error {
 	return a.withCurrent(func(c ValkeyCluster) error { return c.CacheQueryResult(ctx, queryHash, result, ttl) })
 }
@@ -166,6 +135,63 @@ func (a *autoSwapCache) HealthCheck(ctx context.Context) error {
 		return hc.HealthCheck(ctx)
 	}
 	return nil
+}
+
+// GetMemoryInfo delegates to the current underlying cache.
+func (a *autoSwapCache) GetMemoryInfo(ctx context.Context) (*CacheMemoryInfo, error) {
+	var retErr error
+	var retInfo *CacheMemoryInfo
+	_ = a.withCurrent(func(c ValkeyCluster) error {
+		retInfo, retErr = c.GetMemoryInfo(ctx)
+		return nil
+	})
+	return retInfo, retErr
+}
+
+// AdjustCacheTTL delegates to the current underlying cache.
+func (a *autoSwapCache) AdjustCacheTTL(ctx context.Context, keyPattern string, newTTL time.Duration) error {
+	var retErr error
+	_ = a.withCurrent(func(c ValkeyCluster) error {
+		retErr = c.AdjustCacheTTL(ctx, keyPattern, newTTL)
+		return nil
+	})
+	return retErr
+}
+
+// CleanupExpiredEntries delegates to the current underlying cache.
+func (a *autoSwapCache) CleanupExpiredEntries(ctx context.Context, keyPattern string) (int64, error) {
+	var retErr error
+	var retCount int64
+	_ = a.withCurrent(func(c ValkeyCluster) error {
+		retCount, retErr = c.CleanupExpiredEntries(ctx, keyPattern)
+		return nil
+	})
+	return retCount, retErr
+}
+
+/* --------------------------- pattern-based cache invalidation --------------------------- */
+
+func (a *autoSwapCache) AddToPatternIndex(ctx context.Context, patternKey string, cacheKey string) error {
+	return a.withCurrent(func(c ValkeyCluster) error { return c.AddToPatternIndex(ctx, patternKey, cacheKey) })
+}
+
+func (a *autoSwapCache) GetPatternIndexKeys(ctx context.Context, patternKey string) ([]string, error) {
+	var out []string
+	var retErr error
+	_ = a.withCurrent(func(c ValkeyCluster) error {
+		keys, e := c.GetPatternIndexKeys(ctx, patternKey)
+		out, retErr = keys, e
+		return nil
+	})
+	return out, retErr
+}
+
+func (a *autoSwapCache) DeletePatternIndex(ctx context.Context, patternKey string) error {
+	return a.withCurrent(func(c ValkeyCluster) error { return c.DeletePatternIndex(ctx, patternKey) })
+}
+
+func (a *autoSwapCache) DeleteMultiple(ctx context.Context, keys []string) error {
+	return a.withCurrent(func(c ValkeyCluster) error { return c.DeleteMultiple(ctx, keys) })
 }
 
 // NewAutoSwapForSingle creates an auto-swapping cache that upgrades from

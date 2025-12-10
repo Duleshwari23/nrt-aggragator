@@ -14,6 +14,7 @@ database:
     timeout: 30000
     username: ""
     password: "" # Set via environment variable
+    cluster_mode: true  # Use /select/0/prometheus paths for cluster deployments
     # Optional: enable DNS-based discovery of vmselect pods behind a headless Service
     # discovery:
     #   enabled: true
@@ -74,30 +75,10 @@ grpc:
     rules_path: "/etc/mirador/alert-rules.yaml"
     timeout: 30000
 
-# Authentication and Authorization
-auth:
-  enabled: true
-  ldap:
-    url: "ldap://ldap.company.com"
-    base_dn: "dc=company,dc=com"
-    username: "cn=mirador,ou=services,dc=company,dc=com"
-    password: "" # Set via environment variable
-    enabled: true
-    
-  oauth:
-    client_id: "mirador-core"
-    client_secret: "" # Set via environment variable
-    redirect_url: "https://mirador.company.com/auth/callback"
-    issuer: "https://auth.company.com"
-    enabled: false
-    
-  rbac:
-    enabled: true
-    admin_role: "mirador-admin"
-    
-  jwt:
-    secret: "" # Set via environment variable
-    expiry_minutes: 1440 # 24 hours
+# Authentication and Authorization (handled externally - this section is deprecated)
+# Mirador-core is designed to run behind an external API gateway or service mesh
+# that handles authentication and RBAC.
+auth: {}
 
 # Valkey Cluster Caching
 cache:
@@ -121,8 +102,6 @@ cors:
   allowed_headers:
     - "Content-Type"
     - "Authorization"
-    - "X-Tenant-ID"
-    - "X-User-ID"
   exposed_headers:
     - "X-Cache"
     - "X-Rate-Limit-Remaining"
@@ -178,6 +157,10 @@ weaviate:
     - "tags"
     - "examples"
     - "allowed_values"
+  vectorizer:
+    provider: "text2vec-transformers"
+    model: "sentence-transformers/all-MiniLM-L6-v2"
+    use_gpu: false
 
 # Search Engine Configuration
 search:
@@ -191,9 +174,233 @@ unified_query:
   cache_ttl: 5m
   max_cache_ttl: 1h
   default_limit: 1000
-  enable_correlation: false
+  enable_correlation: true
 
 uploads:
   # Bulk CSV upload limit (bytes); default 5 MiB.
   bulk_max_bytes: 5242880
   jaeger_endpoint: "http://jaeger:14268/api/traces"
+
+# Engine configuration (Correlation & RCA) - sample values
+engine:
+  min_window: 10s
+  max_window: 1h
+  default_graph_hops: 2
+  default_max_whys: 5
+  ring_strategy: auto
+  buckets:
+    core_window_size: 30s
+    pre_rings: 2
+    post_rings: 1
+    ring_step: 15s
+  min_correlation: 0.6
+  min_anomaly_score: 0.7
+  strict_time_window: false
+  # Default list of metric probes used to seed impact/candidate KPI discovery.
+  probes:
+    - "db_ops_total"
+    - "kafka_consume_total"
+    - "kafka_produce_total"
+    - "http_request_duration_seconds_count"
+    - "db_latency_seconds_count"
+    - "transactions_failed_total"
+    - "http_errors_total"
+  # Services used as candidates for traces fallback/search heuristics.
+  service_candidates:
+    - "api-gateway"
+    - "tps"
+    - "keydb-client"
+    - "kafka-producer"
+    - "kafka-consumer"
+    - "cassandra-client"
+  # Default limits for queries
+  default_query_limit: 1000
+  labels:
+    service:
+      - "service"
+      - "service.name"
+      - "serviceName"
+    pod:
+      - "pod"
+      - "kubernetes.pod_name"
+    namespace:
+      - "namespace"
+      - "kubernetes.namespace_name"
+    deployment:
+      - "deployment"
+    container:
+      - "container"
+      - "kubernetes.container_name"
+    host:
+      - "host"
+      - "hostname"
+    level:
+      - "level"
+      - "severity"
+
+  # Platform-standard OTel spanmetrics/servicegraph/isolationforest definitions.
+  # These are canonical telemetry connector and processor definitions used
+  # by the Correlation and RCA engines. Do not hardcode raw metric or label
+  # names in code; they must be read from this config or seeded into the
+  # KPI registry (Stage-00 / Weaviate) via the bootstrap step.
+  telemetry:
+    connectors:
+      spanmetrics:
+        kind: connector
+        metrics:
+          - name: traces_span_metrics_calls
+            type: counter
+            description: "Count of spans (requests)"
+            labels:
+              - service_name
+              - span_name
+              - span_kind
+              - status_code
+
+          - name: traces_span_metrics_duration
+            type: histogram
+            description: "Span duration histogram"
+            labels:
+              - service_name
+              - span_name
+              - span_kind
+              - status_code
+              - le
+
+      servicegraph:
+        kind: connector
+        metrics:
+          - name: traces_service_graph_request_total
+            type: counter
+            description: "Total count of requests between client and server nodes"
+            labels:
+              - client
+              - server
+              - connection_type
+
+          - name: traces_service_graph_request_failed_total
+            type: counter
+            description: "Total count of failed requests between client and server nodes"
+            labels:
+              - client
+              - server
+              - connection_type
+
+          - name: traces_service_graph_request_server
+            type: histogram
+            description: "Request duration seconds measured from the server side"
+            labels:
+              - client
+              - server
+              - connection_type
+              - le
+
+          - name: traces_service_graph_request_client
+            type: histogram
+            description: "Request duration seconds measured from the client side"
+            labels:
+              - client
+              - server
+              - connection_type
+              - le
+
+          - name: traces_service_graph_unpaired_spans_total
+            type: counter
+            description: "Total count of unpaired spans"
+            labels:
+              - client
+              - server
+              - connection_type
+
+          - name: traces_service_graph_dropped_spans_total
+            type: counter
+            description: "Total count of dropped spans"
+            labels:
+              - client
+              - server
+              - connection_type
+
+    processors:
+      isolationforest:
+        kind: processor
+        labels:
+          - iforest_is_anomaly
+          - iforest_anomaly_score
+          - service_name
+          - span_name
+          - span_kind
+          - status_code
+          - le
+
+# MIRA (Mirador Intelligent Research Assistant) - AI-powered RCA Explanations
+# MIRA-001: Feature for generating non-technical explanations from RCA data
+mira:
+  enabled: false  # Disabled by default (enable in dev/prod as needed)
+  provider: "ollama"  # Options: openai, anthropic, vllm, ollama
+  timeout: 5m  # Increased to 5 minutes for large RCA analysis with multiple chains
+  
+  # Cache strategy for AI responses
+  cache_strategy:
+    enabled: true
+    use_valkey_for_fast_cache: true
+    ttl: 3600  # 1 hour cache for explanations
+  
+  # Rate limiting for MIRA endpoints
+  rate_limit:
+    enabled: true
+    requests_per_minute: 10
+    burst: 5
+  
+  # OpenAI configuration (when provider=openai)
+  openai:
+    api_key: "${OPENAI_API_KEY}"  # Set via environment variable
+    model: "gpt-4"  # Or: gpt-3.5-turbo
+    max_tokens: 2000
+  
+  # Anthropic configuration (when provider=anthropic)
+  anthropic:
+    api_key: "${ANTHROPIC_API_KEY}"  # Set via environment variable
+    model: "claude-3-5-sonnet-20241022"
+    max_tokens: 2000
+  
+  # vLLM configuration (when provider=vllm)
+  vllm:
+    endpoint: "http://vllm-server:8000/v1/completions"
+    model: "meta-llama/Llama-3.1-70B-Instruct"
+    max_tokens: 2000
+  
+  # Ollama configuration (when provider=ollama) - Local, free option
+  ollama:
+    endpoint: "http://localhost:11434/api/generate"
+    model: "llama3.2:3b"  # 3B model (2GB, 128K context) - optimized for M1 Apple Silicon
+    max_tokens: 2000
+  
+  # Prompt template for generating explanations (optimized for token efficiency)
+  prompt_template: |
+    You are MIRA. Explain this RCA to business stakeholders in simple terms.
+
+    RCA follows 5 Whys: Why #1 (impact) → Why #2-4 (propagation) → Why #5 (root cause)
+    {{- if .TimeRings}}
+    Time rings: {{.TimeRings}}
+    {{- end}}
+    {{- if .PeakTime}}
+    Peak: {{.PeakTime}}
+    {{- end}}
+    
+    {{.TOONData}}
+
+    Impact: {{.ImpactService}} - {{.MetricName}} (Severity: {{.Severity}})
+    {{- if .RootCauseService}}
+    Root: {{.RootCauseService}} - {{.RootCauseComponent}}
+    {{- end}}
+    {{- if .TopChainPath}}
+    Chain: {{.TopChainPath}}
+    {{- end}}
+
+    Provide:
+    1. What users experienced (Why #1)
+    2. How it propagated (Why #2-4)
+    3. Root cause (Why #5)
+    4. Business impact
+
+    Use simple progression: "First...", "This caused...", "Ultimately...". No jargon.

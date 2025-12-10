@@ -1,14 +1,14 @@
 version: '3.8'
 
 services:
-  # Redis Cluster for Valkey caching
-  redis-cluster:
-    image: redis:7-alpine
+  # Valkey Cluster for caching
+  valkey-cluster:
+    image: valkey:latest
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes
+    command: valkey-server --appendonly yes
     volumes:
-      - redis_data:/data
+      - valkey_data:/data
 
   # VictoriaMetrics for metrics storage
   victoriametrics:
@@ -85,18 +85,21 @@ services:
       - PREDICT_ENGINE_GRPC=mock-predict-engine:9091
       - RCA_ENGINE_GRPC=mock-rca-engine:9092
       - ALERT_ENGINE_GRPC=mock-alert-engine:9093
-      - VALKEY_CACHE_NODES=redis-cluster:6379
+      - VALKEY_CACHE_NODES=valkey:6379
     depends_on:
-      - redis-cluster
+      - valkey-cluster
       - victoriametrics
       - victorialogs
       - victoriatraces
       - mock-predict-engine
       - mock-rca-engine
       - mock-alert-engine
+    volumes:
+      - bleve_data:/var/lib/mirador/bleve
 
 volumes:
-  redis_data:
+  valkey_data:
   vm_data:
   vl_data:
   vt_data:
+  bleve_data:

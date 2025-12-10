@@ -15,8 +15,9 @@ import (
 	"sync"
 
 	"github.com/platformbuilds/mirador-core/internal/config"
+	"github.com/platformbuilds/mirador-core/internal/logging"
 	"github.com/platformbuilds/mirador-core/internal/models"
-	"github.com/platformbuilds/mirador-core/pkg/logger"
+	corelogger "github.com/platformbuilds/mirador-core/pkg/logger"
 )
 
 type VictoriaMetricsService struct {
@@ -24,7 +25,7 @@ type VictoriaMetricsService struct {
 	endpoints []string
 	timeout   time.Duration
 	client    *http.Client
-	logger    logger.Logger
+	logger    logging.Logger
 	current   int // round-robin cursor
 
 	// guards updates/selection when discovery refreshes endpoints
@@ -32,6 +33,8 @@ type VictoriaMetricsService struct {
 
 	username string
 	password string
+
+	clusterMode bool // Use /select/0/prometheus paths for cluster mode
 
 	// retry knobs
 	retries   int
@@ -43,7 +46,7 @@ type VictoriaMetricsService struct {
 	children []*VictoriaMetricsService
 }
 
-func NewVictoriaMetricsService(cfg config.VictoriaMetricsConfig, logger logger.Logger) *VictoriaMetricsService {
+func NewVictoriaMetricsService(cfg config.VictoriaMetricsConfig, logger corelogger.Logger) *VictoriaMetricsService {
 	return &VictoriaMetricsService{
 		name:      cfg.Name,
 		endpoints: cfg.Endpoints,
@@ -51,11 +54,12 @@ func NewVictoriaMetricsService(cfg config.VictoriaMetricsConfig, logger logger.L
 		client: &http.Client{
 			Timeout: time.Duration(cfg.Timeout) * time.Millisecond,
 		},
-		logger:    logger,
-		retries:   3,    // total attempts
-		backoffMS: 1000, // 1s, 2s, 4s
-		username:  cfg.Username,
-		password:  cfg.Password,
+		logger:      logging.FromCoreLogger(logger),
+		retries:     3,    // total attempts
+		backoffMS:   1000, // 1s, 2s, 4s
+		username:    cfg.Username,
+		password:    cfg.Password,
+		clusterMode: cfg.ClusterMode,
 	}
 }
 
@@ -106,34 +110,17 @@ func (s *VictoriaMetricsService) ExecuteQuery(ctx context.Context, request *mode
 		params.Set("timeout", request.Timeout)
 	}
 
-	// Prefer cluster path (back-compat with tests); fallback to single-node path if unsupported
-	urlCluster := fmt.Sprintf("%s/select/0/prometheus/api/v1/query?%s", endpoint, params.Encode())
-	urlSingle := fmt.Sprintf("%s/api/v1/query?%s", endpoint, params.Encode())
+	url := endpoint + s.buildAPIPath("/api/v1/query") + "?" + params.Encode()
 	headers := map[string]string{"Accept": "application/json"}
-	if request.TenantID != "" {
-		headers["AccountID"] = request.TenantID
-	}
 
-	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, urlCluster, nil, headers)
+	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, url, nil, headers)
 	if err != nil {
 		return nil, fmt.Errorf("VictoriaMetrics request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// Try single-node path if cluster path is unsupported
-		body := readBodySnippet(resp.Body)
-		if resp.StatusCode == http.StatusNotFound || (resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(body), "unsupported path")) {
-			_ = resp.Body.Close()
-			resp, err = s.doRequestWithRetry(ctx, http.MethodGet, urlSingle, nil, headers)
-			if err != nil {
-				return nil, fmt.Errorf("VictoriaMetrics request failed (single path): %w", err)
-			}
-			defer resp.Body.Close()
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
-		}
+		return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
 	}
 
 	var vmResponse models.VictoriaMetricsResponse
@@ -155,7 +142,6 @@ func (s *VictoriaMetricsService) ExecuteQuery(ctx context.Context, request *mode
 		"endpoint", endpoint,
 		"took", executionTime,
 		"seriesCount", result.SeriesCount,
-		"tenant", request.TenantID,
 	)
 	return result, nil
 }
@@ -298,34 +284,17 @@ func (s *VictoriaMetricsService) executeQuerySingleEndpoint(ctx context.Context,
 		params.Set("timeout", request.Timeout)
 	}
 
-	// Prefer cluster path (back-compat with tests); fallback to single-node path if unsupported
-	urlCluster := fmt.Sprintf("%s/select/0/prometheus/api/v1/query?%s", endpoint, params.Encode())
-	urlSingle := fmt.Sprintf("%s/api/v1/query?%s", endpoint, params.Encode())
+	url := endpoint + s.buildAPIPath("/api/v1/query") + "?" + params.Encode()
 	headers := map[string]string{"Accept": "application/json"}
-	if request.TenantID != "" {
-		headers["AccountID"] = request.TenantID
-	}
 
-	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, urlCluster, nil, headers)
+	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, url, nil, headers)
 	if err != nil {
 		return nil, fmt.Errorf("VictoriaMetrics request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// Try single-node path if cluster path is unsupported
-		body := readBodySnippet(resp.Body)
-		if resp.StatusCode == http.StatusNotFound || (resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(body), "unsupported path")) {
-			_ = resp.Body.Close()
-			resp, err = s.doRequestWithRetry(ctx, http.MethodGet, urlSingle, nil, headers)
-			if err != nil {
-				return nil, fmt.Errorf("VictoriaMetrics request failed (single path): %w", err)
-			}
-			defer resp.Body.Close()
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
-		}
+		return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
 	}
 
 	var vmResponse models.VictoriaMetricsResponse
@@ -347,7 +316,6 @@ func (s *VictoriaMetricsService) executeQuerySingleEndpoint(ctx context.Context,
 		"endpoint", endpoint,
 		"took", executionTime,
 		"seriesCount", result.SeriesCount,
-		"tenant", request.TenantID,
 	)
 	return result, nil
 }
@@ -372,32 +340,17 @@ func (s *VictoriaMetricsService) ExecuteRangeQuery(ctx context.Context, request 
 	params.Set("end", request.End)
 	params.Set("step", request.Step)
 
-	urlCluster := fmt.Sprintf("%s/select/0/prometheus/api/v1/query_range?%s", endpoint, params.Encode())
-	urlSingle := fmt.Sprintf("%s/api/v1/query_range?%s", endpoint, params.Encode())
+	url := endpoint + s.buildAPIPath("/api/v1/query_range") + "?" + params.Encode()
 	headers := map[string]string{"Accept": "application/json"}
-	if request.TenantID != "" {
-		headers["AccountID"] = request.TenantID
-	}
 
-	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, urlCluster, nil, headers)
+	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, url, nil, headers)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body := readBodySnippet(resp.Body)
-		if resp.StatusCode == http.StatusNotFound || (resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(body), "unsupported path")) {
-			_ = resp.Body.Close()
-			resp, err = s.doRequestWithRetry(ctx, http.MethodGet, urlSingle, nil, headers)
-			if err != nil {
-				return nil, err
-			}
-			defer resp.Body.Close()
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
-		}
+		return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
 	}
 
 	var vmResponse models.VictoriaMetricsResponse
@@ -539,33 +492,17 @@ func (s *VictoriaMetricsService) executeRangeSingleEndpoint(ctx context.Context,
 	params.Set("end", request.End)
 	params.Set("step", request.Step)
 
-	urlCluster := fmt.Sprintf("%s/select/0/prometheus/api/v1/query_range?%s", endpoint, params.Encode())
-	urlSingle := fmt.Sprintf("%s/api/v1/query_range?%s", endpoint, params.Encode())
+	url := endpoint + s.buildAPIPath("/api/v1/query_range") + "?" + params.Encode()
 	headers := map[string]string{"Accept": "application/json"}
-	if request.TenantID != "" {
-		headers["AccountID"] = request.TenantID
-	}
 
-	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, urlCluster, nil, headers)
+	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, url, nil, headers)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// Try single-node path if cluster path is unsupported
-		body := readBodySnippet(resp.Body)
-		if resp.StatusCode == http.StatusNotFound || (resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(body), "unsupported path")) {
-			_ = resp.Body.Close()
-			resp, err = s.doRequestWithRetry(ctx, http.MethodGet, urlSingle, nil, headers)
-			if err != nil {
-				return nil, err
-			}
-			defer resp.Body.Close()
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
-		}
+		return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
 	}
 
 	var vmResponse models.VictoriaMetricsResponse
@@ -639,32 +576,17 @@ func (s *VictoriaMetricsService) GetSeries(ctx context.Context, request *models.
 		params.Set("end", request.End)
 	}
 
-	urlCluster := fmt.Sprintf("%s/select/0/prometheus/api/v1/series?%s", endpoint, params.Encode())
-	urlSingle := fmt.Sprintf("%s/api/v1/series?%s", endpoint, params.Encode())
+	url := endpoint + s.buildAPIPath("/api/v1/series") + "?" + params.Encode()
 	headers := map[string]string{"Accept": "application/json"}
-	if request.TenantID != "" {
-		headers["AccountID"] = request.TenantID
-	}
 
-	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, urlCluster, nil, headers)
+	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, url, nil, headers)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body := readBodySnippet(resp.Body)
-		if resp.StatusCode == http.StatusNotFound || (resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(body), "unsupported path")) {
-			_ = resp.Body.Close()
-			resp, err = s.doRequestWithRetry(ctx, http.MethodGet, urlSingle, nil, headers)
-			if err != nil {
-				return nil, err
-			}
-			defer resp.Body.Close()
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
-		}
+		return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
 	}
 
 	var vmResponse struct {
@@ -750,32 +672,17 @@ func (s *VictoriaMetricsService) getSeriesSingleEndpoint(ctx context.Context, re
 		params.Set("end", request.End)
 	}
 
-	urlCluster := fmt.Sprintf("%s/select/0/prometheus/api/v1/series?%s", endpoint, params.Encode())
-	urlSingle := fmt.Sprintf("%s/api/v1/series?%s", endpoint, params.Encode())
+	url := endpoint + s.buildAPIPath("/api/v1/series") + "?" + params.Encode()
 	headers := map[string]string{"Accept": "application/json"}
-	if request.TenantID != "" {
-		headers["AccountID"] = request.TenantID
-	}
 
-	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, urlCluster, nil, headers)
+	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, url, nil, headers)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body := readBodySnippet(resp.Body)
-		if resp.StatusCode == http.StatusNotFound || (resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(body), "unsupported path")) {
-			_ = resp.Body.Close()
-			resp, err = s.doRequestWithRetry(ctx, http.MethodGet, urlSingle, nil, headers)
-			if err != nil {
-				return nil, err
-			}
-			defer resp.Body.Close()
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
-		}
+		return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
 	}
 
 	var vmResponse struct {
@@ -852,42 +759,45 @@ func (s *VictoriaMetricsService) GetLabels(ctx context.Context, request *models.
 		params.Add("match[]", match)
 	}
 
-	urlCluster := fmt.Sprintf("%s/select/0/prometheus/api/v1/series?%s", strings.TrimSuffix(endpoint, "/"), params.Encode())
-	urlSingle := fmt.Sprintf("%s/api/v1/series?%s", strings.TrimSuffix(endpoint, "/"), params.Encode())
+	url := strings.TrimSuffix(endpoint, "/") + s.buildAPIPath("/api/v1/series") + "?" + params.Encode()
 	headers := map[string]string{"Accept": "application/json"}
-	if request.TenantID != "" {
-		headers["AccountID"] = request.TenantID
-	}
 
-	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, urlCluster, nil, headers)
+	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, url, nil, headers)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body := readBodySnippet(resp.Body)
-		if resp.StatusCode == http.StatusNotFound || (resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(body), "unsupported path")) {
-			_ = resp.Body.Close()
-			resp, err = s.doRequestWithRetry(ctx, http.MethodGet, urlSingle, nil, headers)
-			if err != nil {
-				return nil, err
-			}
-			defer resp.Body.Close()
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
-		}
+		return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
 	}
 
 	var vmResponse struct {
-		Status string   `json:"status"`
-		Data   []string `json:"data"`
+		Status string                   `json:"status"`
+		Data   []map[string]interface{} `json:"data"` // /api/v1/series returns array of label sets
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&vmResponse); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode series response: %w", err)
 	}
-	return vmResponse.Data, nil
+
+	if vmResponse.Status != "success" {
+		return nil, fmt.Errorf("VictoriaMetrics returned non-success status: %s", vmResponse.Status)
+	}
+
+	// Extract unique label names from all series
+	labelSet := make(map[string]struct{})
+	for _, series := range vmResponse.Data {
+		for labelName := range series {
+			labelSet[labelName] = struct{}{}
+		}
+	}
+
+	labels := make([]string, 0, len(labelSet))
+	for label := range labelSet {
+		labels = append(labels, label)
+	}
+
+	return labels, nil
 }
 
 // getLabelsMultiEndpoint aggregates labels from all configured endpoints in this service
@@ -970,64 +880,47 @@ func (s *VictoriaMetricsService) getLabelsSingleEndpoint(ctx context.Context, re
 		params.Add("match[]", match)
 	}
 
-	urlCluster := fmt.Sprintf("%s/select/0/prometheus/api/v1/series?%s", endpoint, params.Encode())
-	urlSingle := fmt.Sprintf("%s/api/v1/series?%s", endpoint, params.Encode())
+	// When match[] is provided, use /api/v1/series to get series for that metric and extract label names
+	// /api/v1/labels returns ALL labels across all metrics, not labels for a specific metric
+	url := endpoint + s.buildAPIPath("/api/v1/series") + "?" + params.Encode()
 	headers := map[string]string{"Accept": "application/json"}
-	if request.TenantID != "" {
-		headers["AccountID"] = request.TenantID
-	}
 
-	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, urlCluster, nil, headers)
+	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, url, nil, headers)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body := readBodySnippet(resp.Body)
-		if resp.StatusCode == http.StatusNotFound || (resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(body), "unsupported path")) {
-			_ = resp.Body.Close()
-			resp, err = s.doRequestWithRetry(ctx, http.MethodGet, urlSingle, nil, headers)
-			if err != nil {
-				return nil, err
-			}
-			defer resp.Body.Close()
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
-		}
+		return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
 	}
 
 	var vmResponse struct {
-		Status string      `json:"status"`
-		Data   interface{} `json:"data"`
+		Status string                   `json:"status"`
+		Data   []map[string]interface{} `json:"data"` // /api/v1/series returns array of label sets
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&vmResponse); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode series response: %w", err)
 	}
 
-	// Extract unique label names from series data
-	if dataStr, ok := vmResponse.Data.([]string); ok {
-		return dataStr, nil
+	if vmResponse.Status != "success" {
+		return nil, fmt.Errorf("VictoriaMetrics returned non-success status: %s", vmResponse.Status)
 	}
 
-	if data, ok := vmResponse.Data.([]interface{}); ok {
-		labelSet := make(map[string]struct{})
-		for _, item := range data {
-			if series, ok := item.(map[string]interface{}); ok {
-				for labelName := range series {
-					labelSet[labelName] = struct{}{}
-				}
-			}
+	// Extract unique label names from all series
+	labelSet := make(map[string]struct{})
+	for _, series := range vmResponse.Data {
+		for labelName := range series {
+			labelSet[labelName] = struct{}{}
 		}
-		labels := make([]string, 0, len(labelSet))
-		for label := range labelSet {
-			labels = append(labels, label)
-		}
-		return labels, nil
 	}
 
-	return nil, fmt.Errorf("unexpected data type")
+	labels := make([]string, 0, len(labelSet))
+	for label := range labelSet {
+		labels = append(labels, label)
+	}
+
+	return labels, nil
 }
 
 func (s *VictoriaMetricsService) GetLabelValues(ctx context.Context, request *models.LabelValuesRequest) ([]string, error) {
@@ -1096,32 +989,17 @@ func (s *VictoriaMetricsService) GetLabelValues(ctx context.Context, request *mo
 		params.Add("match[]", match)
 	}
 
-	urlCluster := fmt.Sprintf("%s/select/0/prometheus/api/v1/label/%s/values?%s", endpoint, url.PathEscape(request.Label), params.Encode())
-	urlSingle := fmt.Sprintf("%s/api/v1/label/%s/values?%s", endpoint, url.PathEscape(request.Label), params.Encode())
+	url := endpoint + s.buildAPIPath("/api/v1/label/"+url.PathEscape(request.Label)+"/values") + "?" + params.Encode()
 	headers := map[string]string{"Accept": "application/json"}
-	if request.TenantID != "" {
-		headers["AccountID"] = request.TenantID
-	}
 
-	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, urlCluster, nil, headers)
+	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, url, nil, headers)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body := readBodySnippet(resp.Body)
-		if resp.StatusCode == http.StatusNotFound || (resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(body), "unsupported path")) {
-			_ = resp.Body.Close()
-			resp, err = s.doRequestWithRetry(ctx, http.MethodGet, urlSingle, nil, headers)
-			if err != nil {
-				return nil, err
-			}
-			defer resp.Body.Close()
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
-		}
+		return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
 	}
 
 	var vmResponse struct {
@@ -1218,32 +1096,17 @@ func (s *VictoriaMetricsService) getLabelValuesSingleEndpoint(ctx context.Contex
 		params.Add("match[]", match)
 	}
 
-	urlCluster := fmt.Sprintf("%s/select/0/prometheus/api/v1/label/%s/values?%s", endpoint, request.Label, params.Encode())
-	urlSingle := fmt.Sprintf("%s/api/v1/label/%s/values?%s", endpoint, request.Label, params.Encode())
+	url := endpoint + s.buildAPIPath("/api/v1/label/"+request.Label+"/values") + "?" + params.Encode()
 	headers := map[string]string{"Accept": "application/json"}
-	if request.TenantID != "" {
-		headers["AccountID"] = request.TenantID
-	}
 
-	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, urlCluster, nil, headers)
+	resp, err := s.doRequestWithRetry(ctx, http.MethodGet, url, nil, headers)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body := readBodySnippet(resp.Body)
-		if resp.StatusCode == http.StatusNotFound || (resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(body), "unsupported path")) {
-			_ = resp.Body.Close()
-			resp, err = s.doRequestWithRetry(ctx, http.MethodGet, urlSingle, nil, headers)
-			if err != nil {
-				return nil, err
-			}
-			defer resp.Body.Close()
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
-		}
+		return nil, fmt.Errorf("VictoriaMetrics returned status %d: %s", resp.StatusCode, readBodySnippet(resp.Body))
 	}
 
 	var vmResponse struct {
@@ -1464,6 +1327,14 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// buildAPIPath constructs the correct API path based on cluster mode setting
+func (s *VictoriaMetricsService) buildAPIPath(apiPath string) string {
+	if s.clusterMode {
+		return "/select/0/prometheus" + apiPath
+	}
+	return apiPath
 }
 
 // countSeries tries to estimate the number of series in a VM/Prometheus response.

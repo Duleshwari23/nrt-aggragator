@@ -9,7 +9,6 @@ import (
 )
 
 type MetricDef struct {
-	TenantID    string    `json:"tenantId"`
 	Metric      string    `json:"metric"`
 	Description string    `json:"description"`
 	Owner       string    `json:"owner"`
@@ -20,7 +19,6 @@ type MetricDef struct {
 }
 
 type LogFieldDef struct {
-	TenantID    string    `json:"tenantId"`
 	Field       string    `json:"field"`
 	Type        string    `json:"type"`
 	Description string    `json:"description"`
@@ -42,29 +40,30 @@ func (r *SchemaRepo) UpsertMetric(ctx context.Context, m MetricDef, author strin
 	}
 	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO metric_def (tenant_id, metric, description, owner, tags, category, sentiment, current_version) VALUES (?,?,?,?,?,?,?,current_version)
+		`INSERT INTO metric_def (metric, description, owner, tags, category, sentiment, current_version) VALUES (?,?,?,?,?,?,?,current_version)
          ON DUPLICATE KEY UPDATE description=VALUES(description), owner=VALUES(owner), tags=VALUES(tags), category=VALUES(category), sentiment=VALUES(sentiment), updated_at=CURRENT_TIMESTAMP`,
-		m.TenantID, m.Metric, m.Description, m.Owner, string(tagsJSON), m.Category, m.Sentiment); err != nil {
+		m.Metric, m.Description, m.Owner, string(tagsJSON), m.Category, m.Sentiment); err != nil {
 		return err
 	}
 	// bump version counter
-	if _, err := tx.ExecContext(ctx, `UPDATE metric_def SET current_version = current_version + 1 WHERE tenant_id=? AND metric=?`, m.TenantID, m.Metric); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE metric_def SET current_version = current_version + 1 WHERE metric=?`, m.Metric); err != nil {
 		return err
 	}
 	// insert version row from current
 	var ver int64
-	if err := tx.QueryRowContext(ctx, `SELECT current_version FROM metric_def WHERE tenant_id=? AND metric=?`, m.TenantID, m.Metric).Scan(&ver); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT current_version FROM metric_def WHERE metric=?`, m.Metric).Scan(&ver); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(m)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO metric_def_versions(tenant_id,metric,version,payload,author) VALUES (?,?,?,?,?)`, m.TenantID, m.Metric, ver, string(payload), author); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO metric_def_versions(metric,version,payload,author) VALUES (?,?,?,?)`, m.Metric, ver, string(payload), author); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-func (r *SchemaRepo) GetMetric(ctx context.Context, tenantID, metric string) (*MetricDef, error) {
-	row := r.DB.QueryRowContext(ctx, `SELECT description, owner, tags, category, sentiment, updated_at FROM metric_def WHERE tenant_id=? AND metric=?`, tenantID, metric)
+func (r *SchemaRepo) GetMetric(ctx context.Context, metric string) (*MetricDef, error) {
+
+	row := r.DB.QueryRowContext(ctx, `SELECT description, owner, tags, category, sentiment, updated_at FROM metric_def WHERE metric=?`, metric)
 	var desc, owner, category, sentiment string
 	var tagsRaw sql.NullString
 	var updated time.Time
@@ -75,7 +74,7 @@ func (r *SchemaRepo) GetMetric(ctx context.Context, tenantID, metric string) (*M
 	if tagsRaw.Valid {
 		_ = json.Unmarshal([]byte(tagsRaw.String), &tags)
 	}
-	return &MetricDef{TenantID: tenantID, Metric: metric, Description: desc, Owner: owner, Tags: tags, Category: category, Sentiment: sentiment, UpdatedAt: updated}, nil
+	return &MetricDef{Metric: metric, Description: desc, Owner: owner, Tags: tags, Category: category, Sentiment: sentiment, UpdatedAt: updated}, nil
 }
 
 func (r *SchemaRepo) UpsertLogField(ctx context.Context, f LogFieldDef, author string) error {
@@ -86,26 +85,26 @@ func (r *SchemaRepo) UpsertLogField(ctx context.Context, f LogFieldDef, author s
 	}
 	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO log_field_def (tenant_id, field, type, description, tags, category, sentiment) VALUES (?,?,?,?,?,?,?)
+		`INSERT INTO log_field_def (field, type, description, tags, category, sentiment) VALUES (?,?,?,?,?,?)
          ON DUPLICATE KEY UPDATE type=VALUES(type), description=VALUES(description), tags=VALUES(tags), category=VALUES(category), sentiment=VALUES(sentiment), updated_at=CURRENT_TIMESTAMP`,
-		f.TenantID, f.Field, f.Type, f.Description, string(tagsJSON), f.Category, f.Sentiment); err != nil {
+		f.Field, f.Type, f.Description, string(tagsJSON), f.Category, f.Sentiment); err != nil {
 		return err
 	}
 	// bump & version
 	var ver int64
 	// implement version table by selecting MAX(version)+1
-	if err := tx.QueryRowContext(ctx, `SELECT IFNULL(MAX(version),0)+1 FROM log_field_def_versions WHERE tenant_id=? AND field=?`, f.TenantID, f.Field).Scan(&ver); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT IFNULL(MAX(version),0)+1 FROM log_field_def_versions WHERE field=?`, f.Field).Scan(&ver); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(f)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO log_field_def_versions(tenant_id,field,version,payload,author) VALUES (?,?,?,?,?)`, f.TenantID, f.Field, ver, string(payload), author); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO log_field_def_versions(field,version,payload,author) VALUES (?,?,?,?)`, f.Field, ver, string(payload), author); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-func (r *SchemaRepo) GetLogField(ctx context.Context, tenantID, field string) (*LogFieldDef, error) {
-	row := r.DB.QueryRowContext(ctx, `SELECT type, description, tags, category, sentiment, updated_at FROM log_field_def WHERE tenant_id=? AND field=?`, tenantID, field)
+func (r *SchemaRepo) GetLogField(ctx context.Context, field string) (*LogFieldDef, error) {
+	row := r.DB.QueryRowContext(ctx, `SELECT type, description, tags, category, sentiment, updated_at FROM log_field_def WHERE field=?`, field)
 	var typ, desc, category, sentiment string
 	var tagsRaw sql.NullString
 	var updated time.Time
@@ -117,23 +116,23 @@ func (r *SchemaRepo) GetLogField(ctx context.Context, tenantID, field string) (*
 	if tagsRaw.Valid {
 		_ = json.Unmarshal([]byte(tagsRaw.String), &tags)
 	}
-	return &LogFieldDef{TenantID: tenantID, Field: field, Type: typ, Description: desc, Tags: tags, Category: category, Sentiment: sentiment, UpdatedAt: updated}, nil
+	return &LogFieldDef{Field: field, Type: typ, Description: desc, Tags: tags, Category: category, Sentiment: sentiment, UpdatedAt: updated}, nil
 }
 
 // UpsertLabel inserts or updates a label definition.
-func (r *SchemaRepo) UpsertLabel(ctx context.Context, tenantID, name, typ string, required bool, allowed map[string]any, description, category, sentiment, author string) error {
+func (r *SchemaRepo) UpsertLabel(ctx context.Context, name, typ string, required bool, allowed map[string]any, description, category, sentiment, author string) error {
 	allowedJSON, _ := json.Marshal(allowed)
 	_, err := r.DB.ExecContext(ctx,
-		`INSERT INTO label_def (tenant_id, name, type, required, allowed_values, description, category, sentiment)
-         VALUES (?,?,?,?,?,?,?,?)
+		`INSERT INTO label_def (name, type, required, allowed_values, description, category, sentiment)
+         VALUES (?,?,?,?,?,?,?)
          ON DUPLICATE KEY UPDATE type=VALUES(type), required=VALUES(required), allowed_values=VALUES(allowed_values), description=VALUES(description), category=VALUES(category), sentiment=VALUES(sentiment), updated_at=CURRENT_TIMESTAMP`,
-		tenantID, name, typ, required, string(allowedJSON), description, category, sentiment)
+		name, typ, required, string(allowedJSON), description, category, sentiment)
 	return err
 }
 
 // GetLabel retrieves a label definition.
-func (r *SchemaRepo) GetLabel(ctx context.Context, tenantID, name string) (*LabelDef, error) {
-	row := r.DB.QueryRowContext(ctx, `SELECT type, required, allowed_values, description, category, sentiment, updated_at FROM label_def WHERE tenant_id=? AND name=?`, tenantID, name)
+func (r *SchemaRepo) GetLabel(ctx context.Context, name string) (*LabelDef, error) {
+	row := r.DB.QueryRowContext(ctx, `SELECT type, required, allowed_values, description, category, sentiment, updated_at FROM label_def WHERE name=?`, name)
 	var typ, desc, category, sentiment string
 	var req bool
 	var allowed sql.NullString
@@ -145,11 +144,11 @@ func (r *SchemaRepo) GetLabel(ctx context.Context, tenantID, name string) (*Labe
 	if allowed.Valid {
 		_ = json.Unmarshal([]byte(allowed.String), &allowedMap)
 	}
-	return &LabelDef{TenantID: tenantID, Name: name, Type: typ, Required: req, AllowedVals: allowedMap, Description: desc, Category: category, Sentiment: sentiment, UpdatedAt: updated}, nil
+	return &LabelDef{Name: name, Type: typ, Required: req, AllowedVals: allowedMap, Description: desc, Category: category, Sentiment: sentiment, UpdatedAt: updated}, nil
 }
 
 // Versioned upserts with author for traces service/operation
-func (r *SchemaRepo) UpsertTraceServiceWithAuthor(ctx context.Context, tenantID, service, servicePurpose, owner, category, sentiment string, tags []string, author string) error {
+func (r *SchemaRepo) UpsertTraceServiceWithAuthor(ctx context.Context, service, servicePurpose, owner, category, sentiment string, tags []string, author string) error {
 	tagsJSON, _ := json.Marshal(tags)
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -157,18 +156,17 @@ func (r *SchemaRepo) UpsertTraceServiceWithAuthor(ctx context.Context, tenantID,
 	}
 	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO traces_service_def (tenant_id, service, service_purpose, owner, tags, category, sentiment)
-         VALUES (?,?,?,?,?,?,?)
+		`INSERT INTO traces_service_def (service, service_purpose, owner, tags, category, sentiment)
+         VALUES (?,?,?,?,?,?)
          ON DUPLICATE KEY UPDATE service_purpose=VALUES(service_purpose), owner=VALUES(owner), tags=VALUES(tags), category=VALUES(category), sentiment=VALUES(sentiment), updated_at=CURRENT_TIMESTAMP`,
-		tenantID, service, servicePurpose, owner, string(tagsJSON), category, sentiment); err != nil {
+		service, servicePurpose, owner, string(tagsJSON), category, sentiment); err != nil {
 		return err
 	}
 	var ver int64
-	if err := tx.QueryRowContext(ctx, `SELECT IFNULL(MAX(version),0)+1 FROM traces_service_def_versions WHERE tenant_id=? AND service=?`, tenantID, service).Scan(&ver); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT IFNULL(MAX(version),0)+1 FROM traces_service_def_versions WHERE service=?`, service).Scan(&ver); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(map[string]any{
-		"tenantId":       tenantID,
 		"service":        service,
 		"servicePurpose": servicePurpose,
 		"owner":          owner,
@@ -177,32 +175,32 @@ func (r *SchemaRepo) UpsertTraceServiceWithAuthor(ctx context.Context, tenantID,
 		"sentiment":      sentiment,
 		"updatedAt":      time.Now(),
 	})
-	if _, err := tx.ExecContext(ctx, `INSERT INTO traces_service_def_versions(tenant_id,service,version,payload,author) VALUES (?,?,?,?,?)`, tenantID, service, ver, string(payload), author); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO traces_service_def_versions(service,version,payload,author) VALUES (?,?,?,?)`, service, ver, string(payload), author); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-func (r *SchemaRepo) UpsertTraceOperationWithAuthor(ctx context.Context, tenantID, service, operation, servicePurpose, owner, category, sentiment string, tags []string, author string) error {
+func (r *SchemaRepo) UpsertTraceOperationWithAuthor(ctx context.Context, service, operation, servicePurpose, owner, category, sentiment string, tags []string, author string) error {
 	tagsJSON, _ := json.Marshal(tags)
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO traces_operation_def (tenant_id, service, operation, service_purpose, owner, tags, category, sentiment)
-         VALUES (?,?,?,?,?,?,?,?)
+		`INSERT INTO traces_operation_def (service, operation, service_purpose, owner, tags, category, sentiment)
+         VALUES (?,?,?,?,?,?,?)
          ON DUPLICATE KEY UPDATE service_purpose=VALUES(service_purpose), owner=VALUES(owner), tags=VALUES(tags), category=VALUES(category), sentiment=VALUES(sentiment), updated_at=CURRENT_TIMESTAMP`,
-		tenantID, service, operation, servicePurpose, owner, string(tagsJSON), category, sentiment); err != nil {
+		service, operation, servicePurpose, owner, string(tagsJSON), category, sentiment); err != nil {
 		return err
 	}
 	var ver int64
-	if err := tx.QueryRowContext(ctx, `SELECT IFNULL(MAX(version),0)+1 FROM traces_operation_def_versions WHERE tenant_id=? AND service=? AND operation=?`, tenantID, service, operation).Scan(&ver); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT IFNULL(MAX(version),0)+1 FROM traces_operation_def_versions WHERE service=? AND operation=?`, service, operation).Scan(&ver); err != nil {
 		return err
 	}
 	payload, _ := json.Marshal(map[string]any{
-		"tenantId":       tenantID,
 		"service":        service,
 		"operation":      operation,
 		"servicePurpose": servicePurpose,
@@ -212,7 +210,7 @@ func (r *SchemaRepo) UpsertTraceOperationWithAuthor(ctx context.Context, tenantI
 		"sentiment":      sentiment,
 		"updatedAt":      time.Now(),
 	})
-	if _, err := tx.ExecContext(ctx, `INSERT INTO traces_operation_def_versions(tenant_id,service,operation,version,payload,author) VALUES (?,?,?,?,?,?)`, tenantID, service, operation, ver, string(payload), author); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO traces_operation_def_versions(service,operation,version,payload,author) VALUES (?,?,?,?,?)`, service, operation, ver, string(payload), author); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -220,7 +218,6 @@ func (r *SchemaRepo) UpsertTraceOperationWithAuthor(ctx context.Context, tenantI
 
 // Trace schema models and getters
 type TraceServiceDef struct {
-	TenantID       string    `json:"tenantId"`
 	Service        string    `json:"service"`
 	ServicePurpose string    `json:"servicePurpose"`
 	Owner          string    `json:"owner"`
@@ -231,7 +228,6 @@ type TraceServiceDef struct {
 }
 
 type TraceOperationDef struct {
-	TenantID       string    `json:"tenantId"`
 	Service        string    `json:"service"`
 	Operation      string    `json:"operation"`
 	ServicePurpose string    `json:"servicePurpose"`
@@ -244,7 +240,6 @@ type TraceOperationDef struct {
 
 // Independent Label definition
 type LabelDef struct {
-	TenantID    string         `json:"tenantId"`
 	Name        string         `json:"name"`
 	Type        string         `json:"type"`
 	Required    bool           `json:"required"`
@@ -255,8 +250,9 @@ type LabelDef struct {
 	UpdatedAt   time.Time      `json:"updatedAt"`
 }
 
-func (r *SchemaRepo) GetTraceService(ctx context.Context, tenantID, service string) (*TraceServiceDef, error) {
-	row := r.DB.QueryRowContext(ctx, `SELECT service_purpose, owner, tags, category, sentiment, updated_at FROM traces_service_def WHERE tenant_id=? AND service=?`, tenantID, service)
+func (r *SchemaRepo) GetTraceService(ctx context.Context, service string) (*TraceServiceDef, error) {
+
+	row := r.DB.QueryRowContext(ctx, `SELECT service_purpose, owner, tags, category, sentiment, updated_at FROM traces_service_def WHERE service=?`, service)
 	var servicePurpose, owner, category, sentiment string
 	var tagsRaw sql.NullString
 	var updated time.Time
@@ -267,11 +263,12 @@ func (r *SchemaRepo) GetTraceService(ctx context.Context, tenantID, service stri
 	if tagsRaw.Valid {
 		_ = json.Unmarshal([]byte(tagsRaw.String), &tags)
 	}
-	return &TraceServiceDef{TenantID: tenantID, Service: service, ServicePurpose: servicePurpose, Owner: owner, Tags: tags, Category: category, Sentiment: sentiment, UpdatedAt: updated}, nil
+	return &TraceServiceDef{Service: service, ServicePurpose: servicePurpose, Owner: owner, Tags: tags, Category: category, Sentiment: sentiment, UpdatedAt: updated}, nil
 }
 
-func (r *SchemaRepo) GetTraceOperation(ctx context.Context, tenantID, service, operation string) (*TraceOperationDef, error) {
-	row := r.DB.QueryRowContext(ctx, `SELECT service_purpose, owner, tags, category, sentiment, updated_at FROM traces_operation_def WHERE tenant_id=? AND service=? AND operation=?`, tenantID, service, operation)
+func (r *SchemaRepo) GetTraceOperation(ctx context.Context, service, operation string) (*TraceOperationDef, error) {
+
+	row := r.DB.QueryRowContext(ctx, `SELECT service_purpose, owner, tags, category, sentiment, updated_at FROM traces_operation_def WHERE service=? AND operation=?`, service, operation)
 	var servicePurpose, owner, category, sentiment string
 	var tagsRaw sql.NullString
 	var updated time.Time
@@ -282,11 +279,11 @@ func (r *SchemaRepo) GetTraceOperation(ctx context.Context, tenantID, service, o
 	if tagsRaw.Valid {
 		_ = json.Unmarshal([]byte(tagsRaw.String), &tags)
 	}
-	return &TraceOperationDef{TenantID: tenantID, Service: service, Operation: operation, ServicePurpose: servicePurpose, Owner: owner, Tags: tags, Category: category, Sentiment: sentiment, UpdatedAt: updated}, nil
+	return &TraceOperationDef{Service: service, Operation: operation, ServicePurpose: servicePurpose, Owner: owner, Tags: tags, Category: category, Sentiment: sentiment, UpdatedAt: updated}, nil
 }
 
-func (r *SchemaRepo) ListTraceServiceVersions(ctx context.Context, tenantID, service string) ([]VersionInfo, error) {
-	rows, err := r.DB.QueryContext(ctx, `SELECT version, author, created_at FROM traces_service_def_versions WHERE tenant_id=? AND service=? ORDER BY version DESC`, tenantID, service)
+func (r *SchemaRepo) ListTraceServiceVersions(ctx context.Context, service string) ([]VersionInfo, error) {
+	rows, err := r.DB.QueryContext(ctx, `SELECT version, author, created_at FROM traces_service_def_versions WHERE service=? ORDER BY version DESC`, service)
 	if err != nil {
 		return nil, err
 	}
@@ -302,8 +299,8 @@ func (r *SchemaRepo) ListTraceServiceVersions(ctx context.Context, tenantID, ser
 	return out, nil
 }
 
-func (r *SchemaRepo) GetTraceServiceVersion(ctx context.Context, tenantID, service string, version int64) (map[string]any, VersionInfo, error) {
-	row := r.DB.QueryRowContext(ctx, `SELECT payload, author, created_at FROM traces_service_def_versions WHERE tenant_id=? AND service=? AND version=?`, tenantID, service, version)
+func (r *SchemaRepo) GetTraceServiceVersion(ctx context.Context, service string, version int64) (map[string]any, VersionInfo, error) {
+	row := r.DB.QueryRowContext(ctx, `SELECT payload, author, created_at FROM traces_service_def_versions WHERE service=? AND version=?`, service, version)
 	var payloadStr sql.NullString
 	var vi VersionInfo
 	if err := row.Scan(&payloadStr, &vi.Author, &vi.CreatedAt); err != nil {
@@ -317,8 +314,8 @@ func (r *SchemaRepo) GetTraceServiceVersion(ctx context.Context, tenantID, servi
 	return payload, vi, nil
 }
 
-func (r *SchemaRepo) ListTraceOperationVersions(ctx context.Context, tenantID, service, operation string) ([]VersionInfo, error) {
-	rows, err := r.DB.QueryContext(ctx, `SELECT version, author, created_at FROM traces_operation_def_versions WHERE tenant_id=? AND service=? AND operation=? ORDER BY version DESC`, tenantID, service, operation)
+func (r *SchemaRepo) ListTraceOperationVersions(ctx context.Context, service, operation string) ([]VersionInfo, error) {
+	rows, err := r.DB.QueryContext(ctx, `SELECT version, author, created_at FROM traces_operation_def_versions WHERE service=? AND operation=? ORDER BY version DESC`, service, operation)
 	if err != nil {
 		return nil, err
 	}
@@ -334,8 +331,8 @@ func (r *SchemaRepo) ListTraceOperationVersions(ctx context.Context, tenantID, s
 	return out, nil
 }
 
-func (r *SchemaRepo) GetTraceOperationVersion(ctx context.Context, tenantID, service, operation string, version int64) (map[string]any, VersionInfo, error) {
-	row := r.DB.QueryRowContext(ctx, `SELECT payload, author, created_at FROM traces_operation_def_versions WHERE tenant_id=? AND service=? AND operation=? AND version=?`, tenantID, service, operation, version)
+func (r *SchemaRepo) GetTraceOperationVersion(ctx context.Context, service, operation string, version int64) (map[string]any, VersionInfo, error) {
+	row := r.DB.QueryRowContext(ctx, `SELECT payload, author, created_at FROM traces_operation_def_versions WHERE service=? AND operation=? AND version=?`, service, operation, version)
 	var payloadStr sql.NullString
 	var vi VersionInfo
 	if err := row.Scan(&payloadStr, &vi.Author, &vi.CreatedAt); err != nil {
@@ -350,7 +347,6 @@ func (r *SchemaRepo) GetTraceOperationVersion(ctx context.Context, tenantID, ser
 }
 
 type MetricLabelDef struct {
-	TenantID    string         `json:"tenantId"`
 	Metric      string         `json:"metric"`
 	Label       string         `json:"label"`
 	Type        string         `json:"type"`
@@ -360,18 +356,20 @@ type MetricLabelDef struct {
 }
 
 // GetMetricLabelDefs returns label definitions for the given metric and subset of label names.
-func (r *SchemaRepo) GetMetricLabelDefs(ctx context.Context, tenantID, metric string, labels []string) (map[string]*MetricLabelDef, error) {
+func (r *SchemaRepo) GetMetricLabelDefs(ctx context.Context, metric string, labels []string) (map[string]*MetricLabelDef, error) {
 	if len(labels) == 0 {
 		return map[string]*MetricLabelDef{}, nil
 	}
 	// build IN clause safely
-	args := []interface{}{tenantID, metric}
+
+	args := []interface{}{metric}
 	placeholders := make([]string, 0, len(labels))
 	for _, l := range labels {
 		placeholders = append(placeholders, "?")
 		args = append(args, l)
 	}
-	query := "SELECT label, type, required, allowed_values, description FROM metric_label_def WHERE tenant_id=? AND metric=? AND label IN (" + strings.Join(placeholders, ",") + ")"
+
+	query := "SELECT label, type, required, allowed_values, description FROM metric_label_def WHERE metric=? AND label IN (" + strings.Join(placeholders, ",") + ")"
 	rows, err := r.DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -389,7 +387,7 @@ func (r *SchemaRepo) GetMetricLabelDefs(ctx context.Context, tenantID, metric st
 		if allowed.Valid {
 			_ = json.Unmarshal([]byte(allowed.String), &allowedMap)
 		}
-		out[label] = &MetricLabelDef{TenantID: tenantID, Metric: metric, Label: label, Type: typ, Required: req, AllowedVals: allowedMap, Description: desc}
+		out[label] = &MetricLabelDef{Metric: metric, Label: label, Type: typ, Required: req, AllowedVals: allowedMap, Description: desc}
 	}
 	return out, nil
 }
@@ -400,8 +398,8 @@ type VersionInfo struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-func (r *SchemaRepo) ListMetricVersions(ctx context.Context, tenantID, metric string) ([]VersionInfo, error) {
-	rows, err := r.DB.QueryContext(ctx, `SELECT version, author, created_at FROM metric_def_versions WHERE tenant_id=? AND metric=? ORDER BY version DESC`, tenantID, metric)
+func (r *SchemaRepo) ListMetricVersions(ctx context.Context, metric string) ([]VersionInfo, error) {
+	rows, err := r.DB.QueryContext(ctx, `SELECT version, author, created_at FROM metric_def_versions WHERE metric=? ORDER BY version DESC`, metric)
 	if err != nil {
 		return nil, err
 	}
@@ -417,8 +415,8 @@ func (r *SchemaRepo) ListMetricVersions(ctx context.Context, tenantID, metric st
 	return out, nil
 }
 
-func (r *SchemaRepo) ListLogFieldVersions(ctx context.Context, tenantID, field string) ([]VersionInfo, error) {
-	rows, err := r.DB.QueryContext(ctx, `SELECT version, author, created_at FROM log_field_def_versions WHERE tenant_id=? AND field=? ORDER BY version DESC`, tenantID, field)
+func (r *SchemaRepo) ListLogFieldVersions(ctx context.Context, field string) ([]VersionInfo, error) {
+	rows, err := r.DB.QueryContext(ctx, `SELECT version, author, created_at FROM log_field_def_versions WHERE field=? ORDER BY version DESC`, field)
 	if err != nil {
 		return nil, err
 	}
@@ -434,8 +432,8 @@ func (r *SchemaRepo) ListLogFieldVersions(ctx context.Context, tenantID, field s
 	return out, nil
 }
 
-func (r *SchemaRepo) GetMetricVersion(ctx context.Context, tenantID, metric string, version int64) (map[string]any, VersionInfo, error) {
-	row := r.DB.QueryRowContext(ctx, `SELECT payload, author, created_at FROM metric_def_versions WHERE tenant_id=? AND metric=? AND version=?`, tenantID, metric, version)
+func (r *SchemaRepo) GetMetricVersion(ctx context.Context, metric string, version int64) (map[string]any, VersionInfo, error) {
+	row := r.DB.QueryRowContext(ctx, `SELECT payload, author, created_at FROM metric_def_versions WHERE metric=? AND version=?`, metric, version)
 	var payloadStr sql.NullString
 	var vi VersionInfo
 	if err := row.Scan(&payloadStr, &vi.Author, &vi.CreatedAt); err != nil {
@@ -449,8 +447,8 @@ func (r *SchemaRepo) GetMetricVersion(ctx context.Context, tenantID, metric stri
 	return payload, vi, nil
 }
 
-func (r *SchemaRepo) GetLogFieldVersion(ctx context.Context, tenantID, field string, version int64) (map[string]any, VersionInfo, error) {
-	row := r.DB.QueryRowContext(ctx, `SELECT payload, author, created_at FROM log_field_def_versions WHERE tenant_id=? AND field=? AND version=?`, tenantID, field, version)
+func (r *SchemaRepo) GetLogFieldVersion(ctx context.Context, field string, version int64) (map[string]any, VersionInfo, error) {
+	row := r.DB.QueryRowContext(ctx, `SELECT payload, author, created_at FROM log_field_def_versions WHERE field=? AND version=?`, field, version)
 	var payloadStr sql.NullString
 	var vi VersionInfo
 	if err := row.Scan(&payloadStr, &vi.Author, &vi.CreatedAt); err != nil {
@@ -463,3 +461,5 @@ func (r *SchemaRepo) GetLogFieldVersion(ctx context.Context, tenantID, field str
 	}
 	return payload, vi, nil
 }
+
+// ...existing code...
