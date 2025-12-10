@@ -15,9 +15,9 @@ datasources:
     editable: true
 
   - name: VictoriaTraces
-    type: tempo
+    type: jaeger
     access: proxy
-    url: http://victoriatraces:10428
+    url: http://victoriatraces:10428/select/jaeger
     editable: true
     jsonData:
       tracesToLogs:

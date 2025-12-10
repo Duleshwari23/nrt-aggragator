@@ -79,7 +79,16 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	// Validate (JWT secret is validated in secrets.go: LoadSecrets)
+	// Ensure telemetry maps are initialized to empty maps when not provided
+	// so consumers can safely range over them without nil checks.
+	if cfg.Engine.Telemetry.Connectors == nil {
+		cfg.Engine.Telemetry.Connectors = map[string]ConnectorConfig{}
+	}
+	if cfg.Engine.Telemetry.Processors == nil {
+		cfg.Engine.Telemetry.Processors = map[string]ProcessorConfig{}
+	}
+
+	// Validate (config validation)
 	if err := validateConfig(&cfg); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
@@ -157,9 +166,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("database.traces_sources", []map[string]any{})
 
 	// gRPC
-	v.SetDefault("grpc.predict_engine.endpoint", "localhost:9091")
-	v.SetDefault("grpc.predict_engine.models", []string{"isolation_forest", "lstm_trend", "anomaly_detector"})
-	v.SetDefault("grpc.predict_engine.timeout", 30000)
 	v.SetDefault("grpc.rca_engine.endpoint", "localhost:9092")
 	v.SetDefault("grpc.rca_engine.correlation_threshold", 0.85)
 	v.SetDefault("grpc.rca_engine.timeout", 30000)
@@ -169,11 +175,7 @@ func setDefaults(v *viper.Viper) {
 
 	// Auth
 	v.SetDefault("auth.enabled", true)
-	v.SetDefault("auth.ldap.enabled", false)
-	v.SetDefault("auth.oauth.enabled", false)
-	v.SetDefault("auth.rbac.enabled", true)
-	v.SetDefault("auth.rbac.admin_role", "mirador-admin")
-	v.SetDefault("auth.jwt.expiry_minutes", 1440)
+	// Note: Auth is now handled externally (API gateway, service mesh, etc.)
 
 	// Cache (Valkey)
 	v.SetDefault("cache.nodes", []string{"localhost:6379"})
@@ -183,7 +185,7 @@ func setDefaults(v *viper.Viper) {
 	// CORS
 	v.SetDefault("cors.allowed_origins", []string{"*"})
 	v.SetDefault("cors.allowed_methods", []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"})
-	v.SetDefault("cors.allowed_headers", []string{"Content-Type", "Authorization", "X-Tenant-ID"})
+	v.SetDefault("cors.allowed_headers", []string{"Content-Type", "Authorization"})
 	v.SetDefault("cors.exposed_headers", []string{"X-Cache", "X-Rate-Limit-Remaining"})
 	v.SetDefault("cors.allow_credentials", true)
 	v.SetDefault("cors.max_age", 3600)
@@ -224,6 +226,22 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("unified_query.max_cache_ttl", "1h")
 	v.SetDefault("unified_query.default_limit", 1000)
 	v.SetDefault("unified_query.enable_correlation", false)
+
+	// Engine (Correlation & RCA) defaults (AT-004)
+	v.SetDefault("engine.min_window", "10s")
+	v.SetDefault("engine.max_window", "1h")
+	v.SetDefault("engine.default_graph_hops", 2)
+	v.SetDefault("engine.default_max_whys", 5)
+	v.SetDefault("engine.ring_strategy", "auto")
+	v.SetDefault("engine.buckets.core_window_size", "30s")
+	v.SetDefault("engine.buckets.pre_rings", 2)
+	v.SetDefault("engine.buckets.post_rings", 1)
+	v.SetDefault("engine.buckets.ring_step", "15s")
+	v.SetDefault("engine.min_correlation", 0.6)
+	v.SetDefault("engine.min_anomaly_score", 0.7)
+	v.SetDefault("engine.strict_time_window", false)
+	// AT-013: strict payload validation for correlation/rca endpoints
+	v.SetDefault("engine.strict_timewindow_payload", false)
 }
 
 /* ---------------------------- legacy overrides --------------------------- */
@@ -253,9 +271,6 @@ func overrideWithEnvVars(v *viper.Viper) {
 		v.Set("database.victoria_traces.endpoints", splitCSV(vt))
 	}
 
-	if p := os.Getenv("PREDICT_ENGINE_GRPC"); p != "" {
-		v.Set("grpc.predict_engine.endpoint", p)
-	}
 	if r := os.Getenv("RCA_ENGINE_GRPC"); r != "" {
 		v.Set("grpc.rca_engine.endpoint", r)
 	}
@@ -263,10 +278,10 @@ func overrideWithEnvVars(v *viper.Viper) {
 		v.Set("grpc.alert_engine.endpoint", a)
 	}
 
-	// Prefer VALKEY_CACHE_NODES; keep VALLEY_CACHE_NODES for backward compatibility
+	// Prefer VALKEY_CACHE_NODES; keep VALKEY_CACHE_NODES for backward compatibility
 	if nodes := os.Getenv("VALKEY_CACHE_NODES"); nodes != "" {
 		v.Set("cache.nodes", splitCSV(nodes))
-	} else if nodes := os.Getenv("VALLEY_CACHE_NODES"); nodes != "" {
+	} else if nodes := os.Getenv("VALKEY_CACHE_NODES"); nodes != "" {
 		v.Set("cache.nodes", splitCSV(nodes))
 	}
 	if ttl := os.Getenv("CACHE_TTL"); ttl != "" {
@@ -287,14 +302,8 @@ func overrideWithEnvVars(v *viper.Viper) {
 			v.Set("auth.enabled", b)
 		}
 	}
-	if rbac := os.Getenv("RBAC_ENABLED"); rbac != "" {
-		if b, err := strconv.ParseBool(rbac); err == nil {
-			v.Set("auth.rbac.enabled", b)
-		}
-	}
-	if jwt := os.Getenv("JWT_SECRET"); jwt != "" {
-		v.Set("auth.jwt.secret", jwt)
-	}
+	// Auth env vars no longer supported - handled externally
+
 	if slack := os.Getenv("SLACK_WEBHOOK_URL"); slack != "" {
 		v.Set("integrations.slack.webhook_url", slack)
 		v.Set("integrations.slack.enabled", true)
@@ -352,7 +361,6 @@ func overrideWithEnvVars(v *viper.Viper) {
 
 /* ------------------------------- validation ------------------------------ */
 
-// Note: JWT secret enforcement is handled in secrets.go (LoadSecrets).
 func validateConfig(cfg *Config) error {
 	// Metrics must have at least one source: either legacy single-source
 	// config or at least one item in metrics_sources list where endpoints
@@ -388,9 +396,6 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("at least one Valkey cluster cache node is required")
 	}
 
-	if cfg.GRPC.PredictEngine.Endpoint == "" {
-		return fmt.Errorf("PREDICT-ENGINE gRPC endpoint is required")
-	}
 	if cfg.GRPC.RCAEngine.Endpoint == "" {
 		return fmt.Errorf("RCA-ENGINE gRPC endpoint is required")
 	}

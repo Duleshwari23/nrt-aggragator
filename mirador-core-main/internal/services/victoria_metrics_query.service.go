@@ -6,21 +6,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/platformbuilds/mirador-core/internal/logging"
 	"github.com/platformbuilds/mirador-core/internal/models"
-	"github.com/platformbuilds/mirador-core/pkg/logger"
+	corelogger "github.com/platformbuilds/mirador-core/pkg/logger"
 )
 
 // VictoriaMetricsQueryService handles MetricsQL function-specific queries
 type VictoriaMetricsQueryService struct {
 	metricsService *VictoriaMetricsService
-	logger         logger.Logger
+	logger         logging.Logger
 }
 
 // NewVictoriaMetricsQueryService creates a new VictoriaMetrics query service
-func NewVictoriaMetricsQueryService(metricsService *VictoriaMetricsService, logger logger.Logger) *VictoriaMetricsQueryService {
+func NewVictoriaMetricsQueryService(metricsService *VictoriaMetricsService, logger corelogger.Logger) *VictoriaMetricsQueryService {
 	return &VictoriaMetricsQueryService{
 		metricsService: metricsService,
-		logger:         logger,
+		logger:         logging.FromCoreLogger(logger),
 	}
 }
 
@@ -42,10 +43,9 @@ func (s *VictoriaMetricsQueryService) ExecuteFunctionQuery(ctx context.Context, 
 
 	// Create a MetricsQLQueryRequest for the underlying service
 	queryReq := &models.MetricsQLQueryRequest{
-		Query:    fullQuery,
-		Time:     req.Time,
-		Timeout:  req.Timeout,
-		TenantID: req.TenantID,
+		Query:   fullQuery,
+		Time:    req.Time,
+		Timeout: req.Timeout,
 	}
 
 	// Execute the query using the underlying metrics service
@@ -86,11 +86,10 @@ func (s *VictoriaMetricsQueryService) ExecuteRangeFunctionQuery(ctx context.Cont
 
 	// For range queries, we need to use ExecuteRangeQuery
 	queryReq := &models.MetricsQLRangeQueryRequest{
-		Query:    fullQuery,
-		Start:    req.Start,
-		End:      req.End,
-		Step:     req.Step,
-		TenantID: req.TenantID,
+		Query: fullQuery,
+		Start: req.Start,
+		End:   req.End,
+		Step:  req.Step,
 	}
 
 	// Execute the range query using the underlying service

@@ -8,13 +8,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid/v5"
+
 	"github.com/platformbuilds/mirador-core/internal/models"
 )
 
 // GenerateSessionID creates a secure session identifier
 func GenerateSessionID() string {
-	return uuid.New().String()
+	return uuid.Must(uuid.NewV4()).String()
 }
 
 // GenerateClientID creates WebSocket client identifier
@@ -56,31 +57,6 @@ func CountDataPoints(data interface{}) int {
 		}
 	}
 	return count
-}
-
-// FilterByRisk filters fractures by risk level
-func FilterByRisk(fractures []*models.SystemFracture, risk string) []*models.SystemFracture {
-	var filtered []*models.SystemFracture
-	for _, fracture := range fractures {
-		if fracture.Severity == risk {
-			filtered = append(filtered, fracture)
-		}
-	}
-	return filtered
-}
-
-// CalculateAvgTimeToFailure calculates average time to failure
-func CalculateAvgTimeToFailure(fractures []*models.SystemFracture) time.Duration {
-	if len(fractures) == 0 {
-		return 0
-	}
-
-	var total time.Duration
-	for _, fracture := range fractures {
-		total += fracture.TimeToFracture
-	}
-
-	return total / time.Duration(len(fractures))
 }
 
 // CountAlertsBySeverity counts alerts by severity level

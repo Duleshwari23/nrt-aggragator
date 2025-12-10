@@ -12,9 +12,7 @@ import (
 // RuntimeFeatureFlags represents the runtime-togglable feature flags
 type RuntimeFeatureFlags struct {
 	RCAEnabled          bool `json:"rca_enabled" yaml:"rca_enabled"`
-	PredictEnabled      bool `json:"predict_enabled" yaml:"predict_enabled"`
 	UserSettingsEnabled bool `json:"user_settings_enabled" yaml:"user_settings_enabled"`
-	RBACEnabled         bool `json:"rbac_enabled" yaml:"rbac_enabled"`
 }
 
 // RuntimeFeatureFlagService manages runtime feature flags stored in cache
@@ -31,9 +29,9 @@ func NewRuntimeFeatureFlagService(cache cache.ValkeyCluster, logger logger.Logge
 	}
 }
 
-// GetFeatureFlags retrieves the current runtime feature flags for a tenant
-func (s *RuntimeFeatureFlagService) GetFeatureFlags(ctx context.Context, tenantID string) (*RuntimeFeatureFlags, error) {
-	cacheKey := fmt.Sprintf("runtime_features:%s", tenantID)
+// GetFeatureFlags retrieves the current runtime feature flags
+func (s *RuntimeFeatureFlagService) GetFeatureFlags(ctx context.Context) (*RuntimeFeatureFlags, error) {
+	cacheKey := "runtime_features:system"
 
 	// Try to get from cache first
 	if cached, err := s.cache.Get(ctx, cacheKey); err == nil && len(cached) > 0 {
@@ -49,9 +47,10 @@ func (s *RuntimeFeatureFlagService) GetFeatureFlags(ctx context.Context, tenantI
 	return defaults, nil
 }
 
-// SetFeatureFlags updates the runtime feature flags for a tenant
-func (s *RuntimeFeatureFlagService) SetFeatureFlags(ctx context.Context, tenantID string, flags *RuntimeFeatureFlags) error {
-	cacheKey := fmt.Sprintf("runtime_features:%s", tenantID)
+// SetFeatureFlags updates the runtime feature flags
+func (s *RuntimeFeatureFlagService) SetFeatureFlags(ctx context.Context, flags *RuntimeFeatureFlags) error {
+	// Using system-level cache key
+	cacheKey := "runtime_features:system"
 
 	// Serialize to JSON
 	data, err := json.Marshal(flags)
@@ -59,18 +58,18 @@ func (s *RuntimeFeatureFlagService) SetFeatureFlags(ctx context.Context, tenantI
 		return fmt.Errorf("failed to marshal feature flags: %w", err)
 	}
 
-	// Store in cache with no expiration (runtime flags persist until explicitly changed)
+	// Store in cache with no expiration
 	if err := s.cache.Set(ctx, cacheKey, data, 0); err != nil {
 		return fmt.Errorf("failed to store feature flags in cache: %w", err)
 	}
 
-	s.logger.Info("Runtime feature flags updated", "tenantID", tenantID, "flags", flags)
+	s.logger.Info("Runtime feature flags updated", "flags", flags)
 	return nil
 }
 
-// UpdateFeatureFlag updates a single feature flag for a tenant
-func (s *RuntimeFeatureFlagService) UpdateFeatureFlag(ctx context.Context, tenantID, flagName string, enabled bool) error {
-	flags, err := s.GetFeatureFlags(ctx, tenantID)
+// UpdateFeatureFlag updates a single feature flag
+func (s *RuntimeFeatureFlagService) UpdateFeatureFlag(ctx context.Context, flagName string, enabled bool) error {
+	flags, err := s.GetFeatureFlags(ctx)
 	if err != nil {
 		return err
 	}
@@ -79,32 +78,25 @@ func (s *RuntimeFeatureFlagService) UpdateFeatureFlag(ctx context.Context, tenan
 	switch flagName {
 	case "rca_enabled":
 		flags.RCAEnabled = enabled
-	case "predict_enabled":
-		flags.PredictEnabled = enabled
 	case "user_settings_enabled":
 		flags.UserSettingsEnabled = enabled
-	case "rbac_enabled":
-		flags.RBACEnabled = enabled
 	default:
 		return fmt.Errorf("unknown feature flag: %s", flagName)
 	}
 
-	return s.SetFeatureFlags(ctx, tenantID, flags)
+	return s.SetFeatureFlags(ctx, flags)
 }
 
-// ResetFeatureFlags resets feature flags to defaults for a tenant
-func (s *RuntimeFeatureFlagService) ResetFeatureFlags(ctx context.Context, tenantID string) error {
+// ResetFeatureFlags resets feature flags to defaults
+func (s *RuntimeFeatureFlagService) ResetFeatureFlags(ctx context.Context) error {
 	defaults := s.getDefaultFeatureFlags()
-	return s.SetFeatureFlags(ctx, tenantID, defaults)
+	return s.SetFeatureFlags(ctx, defaults)
 }
 
 // getDefaultFeatureFlags returns the default runtime feature flags
 func (s *RuntimeFeatureFlagService) getDefaultFeatureFlags() *RuntimeFeatureFlags {
-	// All features enabled by default in development
 	return &RuntimeFeatureFlags{
 		RCAEnabled:          true,
-		PredictEnabled:      true,
 		UserSettingsEnabled: true,
-		RBACEnabled:         true,
 	}
 }

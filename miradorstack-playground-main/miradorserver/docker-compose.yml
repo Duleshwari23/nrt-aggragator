@@ -5,8 +5,8 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
     ports:
-      - "4317:4317"  # gRPC
-      - "4318:4318"  # HTTP
+      - "14317:4317"  # gRPC (mapped to avoid conflict with appserver)
+      - "14318:4318"  # HTTP (mapped to avoid conflict with appserver)
       - "55679:55679"  # zPages
     volumes:
       - ./otel-config.yaml:/etc/otel/config.yaml
@@ -83,27 +83,27 @@ services:
       - weavdata:/var/lib/weaviate
 
   # MIRADOR Core
-  mirador-core:
-    image: localdev_mirador-core:latest
-    ports:
-      - "8010:8010"
-      - "9090:9090"
-    volumes:
-      - ./config.development.yaml:/configs/config.development.yaml:ro
-    environment:
-      - ENVIRONMENT=development
-      - CONFIG_PATH=/configs/config.development.yaml
-      - LOG_LEVEL=debug
-      - VM_ENDPOINTS=http://victoriametrics:8428
-      - VL_ENDPOINTS=http://victorialogs:9428
-      - VT_ENDPOINTS=http://victoriatraces:10428
-    depends_on:
-      - victoriametrics
-      - victorialogs
-      - victoriatraces
-      - otel-collector
-      - valkey
-      - weaviate
+  # mirador-core:
+  #   image: localdev_mirador-core:latest
+  #   ports:
+  #     - "8010:8010"
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./config.development.yaml:/configs/config.development.yaml:ro
+  #   environment:
+  #     - ENVIRONMENT=development
+  #     - CONFIG_PATH=/configs/config.development.yaml
+  #     - LOG_LEVEL=debug
+  #     - VM_ENDPOINTS=http://victoriametrics:8428
+  #     - VL_ENDPOINTS=http://victorialogs:9428
+  #     - VT_ENDPOINTS=http://victoriatraces:10428
+  #   depends_on:
+  #     - victoriametrics
+  #     - victorialogs
+  #     - victoriatraces
+  #     - otel-collector
+  #     - valkey
+  #     - weaviate
 
   # Grafana for visualization
   grafana:
@@ -113,6 +113,8 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
     depends_on:
       - victoriametrics
       - victorialogs

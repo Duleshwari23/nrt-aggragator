@@ -64,15 +64,6 @@ func (c *Config) GetDatabaseTimeout() time.Duration {
 	return time.Duration(timeout) * time.Millisecond
 }
 
-// GetGRPCTimeout returns the appropriate gRPC timeout
-func (c *Config) GetGRPCTimeout() time.Duration {
-	timeout := c.GRPC.PredictEngine.Timeout
-	if timeout == 0 {
-		timeout = DefaultGRPCTimeout
-	}
-	return time.Duration(timeout) * time.Millisecond
-}
-
 // GetCacheTTL returns the cache TTL as a duration
 func (c *Config) GetCacheTTL() time.Duration {
 	ttl := c.Cache.TTL
@@ -106,10 +97,6 @@ func (c *Config) ValidateEndpoints() error {
 	}
 
 	// Validate gRPC endpoints
-	if err := ValidateGRPCEndpoint(c.GRPC.PredictEngine.Endpoint); err != nil {
-		return fmt.Errorf("invalid PREDICT-ENGINE endpoint: %w", err)
-	}
-
 	if err := ValidateGRPCEndpoint(c.GRPC.RCAEngine.Endpoint); err != nil {
 		return fmt.Errorf("invalid RCA-ENGINE endpoint: %w", err)
 	}
@@ -120,7 +107,7 @@ func (c *Config) ValidateEndpoints() error {
 
 	// Validate Valkey cluster nodes
 	for _, node := range c.Cache.Nodes {
-		if err := ValidateRedisNode(node); err != nil {
+		if err := ValidateCacheNode(node); err != nil {
 			return fmt.Errorf("invalid Valkey cluster node %s: %w", node, err)
 		}
 	}
@@ -141,15 +128,12 @@ func (c *Config) ValidateEndpoints() error {
 func (c *Config) ToJSON() string {
 	// Create a copy without sensitive information
 	safeCopy := *c
-	safeCopy.Auth.JWT.Secret = "[REDACTED]"
-	safeCopy.Auth.LDAP.Password = "[REDACTED]"
-	safeCopy.Auth.OAuth.ClientSecret = "[REDACTED]"
 	safeCopy.Cache.Password = "[REDACTED]"
 	safeCopy.Database.VictoriaMetrics.Password = "[REDACTED]"
 	safeCopy.Database.VictoriaLogs.Password = "[REDACTED]"
 	safeCopy.Database.VictoriaTraces.Password = "[REDACTED]"
 	safeCopy.Integrations.Email.Password = "[REDACTED]"
 
-	jsonBytes, _ := json.MarshalIndent(safeCopy, "", "  ")
+	jsonBytes, _ := json.MarshalIndent(safeCopy, "", "  ") //nolint:errcheck
 	return string(jsonBytes)
 }

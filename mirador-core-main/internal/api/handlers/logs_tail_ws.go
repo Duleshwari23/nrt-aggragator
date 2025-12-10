@@ -11,17 +11,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+
 	"github.com/platformbuilds/mirador-core/internal/models"
 	"github.com/platformbuilds/mirador-core/internal/utils"
 	lq "github.com/platformbuilds/mirador-core/internal/utils/lucene"
 )
 
 // GET /api/v1/logs/tail (upgrades to WS)
-// query params: query, since, tenantId, sampling
+// query params: query, since, sampling
 func (h *LogsHandler) TailWS(c *gin.Context) {
 	var (
 		query    = c.Query("query")
-		tenantID = c.Query("tenantId")
 		since    = parseInt64Default(c.Query("since"), time.Now().Add(-5*time.Minute).UnixMilli())
 		sampling = parseIntDefault(c.Query("sampling"), 1)
 	)
@@ -133,10 +133,9 @@ func (h *LogsHandler) TailWS(c *gin.Context) {
 	rowIdx := int64(0)
 
 	_, qerr := h.logs.ExecuteQueryStream(c, &models.LogsQLQueryRequest{
-		Query:    query,
-		Start:    since,
-		End:      time.Now().UnixMilli(),
-		TenantID: tenantID,
+		Query: query,
+		Start: since,
+		End:   time.Now().UnixMilli(),
 	}, func(row map[string]any) error {
 		n := atomic.AddInt64(&rowIdx, 1)
 		if sampleN > 1 && (n%int64(sampleN)) != 0 {

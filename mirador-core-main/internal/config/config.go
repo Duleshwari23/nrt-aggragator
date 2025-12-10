@@ -9,7 +9,6 @@ type Config struct {
 
 	Database     DatabaseConfig     `mapstructure:"database" yaml:"database"`
 	GRPC         GRPCConfig         `mapstructure:"grpc" yaml:"grpc"`
-	Auth         AuthConfig         `mapstructure:"auth" yaml:"auth"`
 	Cache        CacheConfig        `mapstructure:"cache" yaml:"cache"`
 	CORS         CORSConfig         `mapstructure:"cors" yaml:"cors"`
 	Integrations IntegrationsConfig `mapstructure:"integrations" yaml:"integrations"`
@@ -19,6 +18,97 @@ type Config struct {
 	Uploads      UploadsConfig      `mapstructure:"uploads" yaml:"uploads"`
 	Search       SearchConfig       `mapstructure:"search" yaml:"search"`
 	UnifiedQuery UnifiedQueryConfig `mapstructure:"unified_query" yaml:"unified_query"`
+	RCA          RCAConfig          `mapstructure:"rca" yaml:"rca"`
+
+	// Engine configuration for Correlation & RCA engines (AT-004)
+	Engine EngineConfig `mapstructure:"engine" yaml:"engine"`
+
+	// MIRA (Mirador Intelligent Research Assistant) configuration for RCA analysis (MIRA-001)
+	MIRA MIRAConfig `mapstructure:"mira" yaml:"mira"`
+}
+
+// EngineConfig controls Correlation and RCA behavior (AT-004)
+type EngineConfig struct {
+	MinWindow time.Duration `mapstructure:"min_window" yaml:"min_window"`
+	MaxWindow time.Duration `mapstructure:"max_window" yaml:"max_window"`
+
+	DefaultGraphHops int    `mapstructure:"default_graph_hops" yaml:"default_graph_hops"`
+	DefaultMaxWhys   int    `mapstructure:"default_max_whys" yaml:"default_max_whys"`
+	RingStrategy     string `mapstructure:"ring_strategy" yaml:"ring_strategy"`
+
+	Buckets BucketConfig `mapstructure:"buckets" yaml:"buckets"`
+
+	MinCorrelation  float64 `mapstructure:"min_correlation" yaml:"min_correlation"`
+	MinAnomalyScore float64 `mapstructure:"min_anomaly_score" yaml:"min_anomaly_score"`
+
+	// When true, enforce Min/Max window validations as hard errors in handlers.
+	StrictTimeWindow bool `mapstructure:"strict_time_window" yaml:"strict_time_window"`
+	// When true, handlers will enforce a strict payload contract for
+	// correlation/rca endpoints: only the canonical TimeWindow JSON
+	// (`{startTime,endTime}`) is accepted. This is OFF by default.
+	StrictTimeWindowPayload bool `mapstructure:"strict_timewindow_payload" yaml:"strict_timewindow_payload"`
+	// Probes is a configurable list of metric names used as seed probes
+	// when attempting to discover impact and candidate KPIs.
+	Probes []string `mapstructure:"probes" yaml:"probes"`
+
+	// ServiceCandidates lists services used as fallbacks for traces/search heuristics.
+	ServiceCandidates []string `mapstructure:"service_candidates" yaml:"service_candidates"`
+
+	// DefaultQueryLimit is used as the default limit for logs queries when not provided.
+	DefaultQueryLimit int `mapstructure:"default_query_limit" yaml:"default_query_limit"`
+
+	// Labels defines raw-field mappings for canonical semantic labels used by the engines.
+	Labels LabelSchemaConfig `mapstructure:"labels" yaml:"labels"`
+
+	// Telemetry contains platform-standard telemetry connector and processor definitions
+	// (OTel spanmetrics, servicegraph connectors and isolationforest processor).
+	Telemetry TelemetryConfig `mapstructure:"telemetry" yaml:"telemetry"`
+}
+
+// TelemetryMetricConfig describes a single telemetry metric exposed by a connector
+// including its canonical label keys.
+type TelemetryMetricConfig struct {
+	Name        string   `mapstructure:"name" yaml:"name"`
+	Type        string   `mapstructure:"type" yaml:"type"` // e.g. "counter", "histogram"
+	Description string   `mapstructure:"description" yaml:"description"`
+	Labels      []string `mapstructure:"labels" yaml:"labels"`
+}
+
+// ConnectorConfig defines a telemetry connector and the metrics it exposes.
+type ConnectorConfig struct {
+	Kind    string                  `mapstructure:"kind" yaml:"kind"` // "connector"
+	Metrics []TelemetryMetricConfig `mapstructure:"metrics" yaml:"metrics"`
+}
+
+// ProcessorConfig defines a telemetry processor and the labels it emits.
+type ProcessorConfig struct {
+	Kind   string   `mapstructure:"kind" yaml:"kind"` // "processor"
+	Labels []string `mapstructure:"labels" yaml:"labels"`
+}
+
+// TelemetryConfig groups connectors and processors used by the engine.
+type TelemetryConfig struct {
+	Connectors map[string]ConnectorConfig `mapstructure:"connectors" yaml:"connectors"`
+	Processors map[string]ProcessorConfig `mapstructure:"processors" yaml:"processors"`
+}
+
+// LabelSchemaConfig maps canonical semantic labels to possible raw field names
+// found in logs/traces/metrics payloads. The engine will consult this config
+// to extract canonical labels without hardcoding raw keys.
+type LabelSchemaConfig struct {
+	Service    []string `mapstructure:"service" yaml:"service"`
+	Pod        []string `mapstructure:"pod" yaml:"pod"`
+	Namespace  []string `mapstructure:"namespace" yaml:"namespace"`
+	Deployment []string `mapstructure:"deployment" yaml:"deployment"`
+	Container  []string `mapstructure:"container" yaml:"container"`
+	Host       []string `mapstructure:"host" yaml:"host"`
+	Level      []string `mapstructure:"level" yaml:"level"`
+}
+type BucketConfig struct {
+	CoreWindowSize time.Duration `mapstructure:"core_window_size" yaml:"core_window_size"`
+	PreRings       int           `mapstructure:"pre_rings" yaml:"pre_rings"`
+	PostRings      int           `mapstructure:"post_rings" yaml:"post_rings"`
+	RingStep       time.Duration `mapstructure:"ring_step" yaml:"ring_step"`
 }
 
 // DatabaseConfig handles VictoriaMetrics ecosystem configuration
@@ -40,12 +130,13 @@ type DatabaseConfig struct {
 
 type VictoriaMetricsConfig struct {
 	// Optional friendly name for this metrics source
-	Name      string             `mapstructure:"name" yaml:"name"`
-	Endpoints []string           `mapstructure:"endpoints" yaml:"endpoints"`
-	Timeout   int                `mapstructure:"timeout" yaml:"timeout"` // milliseconds
-	Username  string             `mapstructure:"username" yaml:"username"`
-	Password  string             `mapstructure:"password" yaml:"password"`
-	Discovery K8sDiscoveryConfig `mapstructure:"discovery" yaml:"discovery"`
+	Name        string             `mapstructure:"name" yaml:"name"`
+	Endpoints   []string           `mapstructure:"endpoints" yaml:"endpoints"`
+	Timeout     int                `mapstructure:"timeout" yaml:"timeout"` // milliseconds
+	Username    string             `mapstructure:"username" yaml:"username"`
+	Password    string             `mapstructure:"password" yaml:"password"`
+	Discovery   K8sDiscoveryConfig `mapstructure:"discovery" yaml:"discovery"`
+	ClusterMode bool               `mapstructure:"cluster_mode" yaml:"cluster_mode"` // Use /select/0/prometheus paths for cluster mode
 }
 
 type VictoriaLogsConfig struct {
@@ -80,15 +171,8 @@ type K8sDiscoveryConfig struct {
 
 // GRPCConfig handles AI engines gRPC configuration
 type GRPCConfig struct {
-	PredictEngine PredictEngineConfig `mapstructure:"predict_engine" yaml:"predict_engine"`
-	RCAEngine     RCAEngineConfig     `mapstructure:"rca_engine" yaml:"rca_engine"`
-	AlertEngine   AlertEngineConfig   `mapstructure:"alert_engine" yaml:"alert_engine"`
-}
-
-type PredictEngineConfig struct {
-	Endpoint string   `mapstructure:"endpoint" yaml:"endpoint"`
-	Models   []string `mapstructure:"models" yaml:"models"`
-	Timeout  int      `mapstructure:"timeout" yaml:"timeout"`
+	RCAEngine   RCAEngineConfig   `mapstructure:"rca_engine" yaml:"rca_engine"`
+	AlertEngine AlertEngineConfig `mapstructure:"alert_engine" yaml:"alert_engine"`
 }
 
 type RCAEngineConfig struct {
@@ -101,41 +185,6 @@ type AlertEngineConfig struct {
 	Endpoint  string `mapstructure:"endpoint" yaml:"endpoint"`
 	RulesPath string `mapstructure:"rules_path" yaml:"rules_path"`
 	Timeout   int    `mapstructure:"timeout" yaml:"timeout"`
-}
-
-// AuthConfig handles authentication and authorization
-type AuthConfig struct {
-	Enabled bool        `mapstructure:"enabled" yaml:"enabled"`
-	LDAP    LDAPConfig  `mapstructure:"ldap" yaml:"ldap"`
-	OAuth   OAuthConfig `mapstructure:"oauth" yaml:"oauth"`
-	RBAC    RBACConfig  `mapstructure:"rbac" yaml:"rbac"`
-	JWT     JWTConfig   `mapstructure:"jwt" yaml:"jwt"`
-}
-
-type LDAPConfig struct {
-	URL      string `mapstructure:"url" yaml:"url"`
-	BaseDN   string `mapstructure:"base_dn" yaml:"base_dn"`
-	Username string `mapstructure:"username" yaml:"username"`
-	Password string `mapstructure:"password" yaml:"password"`
-	Enabled  bool   `mapstructure:"enabled" yaml:"enabled"`
-}
-
-type OAuthConfig struct {
-	ClientID     string `mapstructure:"client_id" yaml:"client_id"`
-	ClientSecret string `mapstructure:"client_secret" yaml:"client_secret"`
-	RedirectURL  string `mapstructure:"redirect_url" yaml:"redirect_url"`
-	Issuer       string `mapstructure:"issuer" yaml:"issuer"`
-	Enabled      bool   `mapstructure:"enabled" yaml:"enabled"`
-}
-
-type RBACConfig struct {
-	Enabled   bool   `mapstructure:"enabled" yaml:"enabled"`
-	AdminRole string `mapstructure:"admin_role" yaml:"admin_role"`
-}
-
-type JWTConfig struct {
-	Secret    string `mapstructure:"secret" yaml:"secret"`
-	ExpiryMin int    `mapstructure:"expiry_minutes" yaml:"expiry_minutes"`
 }
 
 // CacheConfig handles Valkey cluster caching configuration
@@ -221,6 +270,19 @@ type WeaviateConfig struct {
 	UseOfficial bool `mapstructure:"use_official" yaml:"use_official"`
 	// NestedKeys predeclares nestedProperties for object fields like tags/examples/etc.
 	NestedKeys []string `mapstructure:"nested_keys" yaml:"nested_keys"`
+	// Vectorizer config controls which runtime vectorizer/provider weaviate will use
+	// and which model to select. Designed to be CPU-friendly by default (small
+	// transformer models) to avoid the need for GPU infra in many deployments.
+	Vectorizer WeaviateVectorizerConfig `mapstructure:"vectorizer" yaml:"vectorizer"`
+}
+
+// WeaviateVectorizerConfig controls runtime vectorizer provider & model selection
+// for Weaviate schema classes that use a text vectorizer. Defaults should be
+// CPU-friendly (e.g. all-MiniLM family) to support low-cost deployments.
+type WeaviateVectorizerConfig struct {
+	Provider string `mapstructure:"provider" yaml:"provider"` // e.g. "text2vec-transformers" or "text2vec-openai" or "none"
+	Model    string `mapstructure:"model" yaml:"model"`       // e.g. "sentence-transformers/all-MiniLM-L6-v2"
+	UseGPU   bool   `mapstructure:"use_gpu" yaml:"use_gpu"`   // whether to prefer GPU-backed vectorizers
 }
 
 // SearchConfig holds configuration for search engines
@@ -248,6 +310,20 @@ type BleveConfig struct {
 	MaxMemoryMB        int                      `mapstructure:"max_memory_mb" yaml:"max_memory_mb"`
 	MemoryOptimization MemoryOptimizationConfig `mapstructure:"memory_optimization" yaml:"memory_optimization"`
 	Storage            BleveStorageConfig       `mapstructure:"storage" yaml:"storage"`
+	MetricsSync        MetricsSyncConfig        `mapstructure:"metrics_sync" yaml:"metrics_sync"`
+}
+
+// MetricsSyncConfig holds metrics metadata synchronization configuration
+type MetricsSyncConfig struct {
+	Enabled           bool          `mapstructure:"enabled" yaml:"enabled"`
+	Strategy          string        `mapstructure:"strategy" yaml:"strategy"` // "incremental", "full", "hybrid"
+	Interval          time.Duration `mapstructure:"interval" yaml:"interval"`
+	FullSyncInterval  time.Duration `mapstructure:"full_sync_interval" yaml:"full_sync_interval"`
+	BatchSize         int           `mapstructure:"batch_size" yaml:"batch_size"`
+	MaxRetries        int           `mapstructure:"max_retries" yaml:"max_retries"`
+	RetryDelay        time.Duration `mapstructure:"retry_delay" yaml:"retry_delay"`
+	TimeRangeLookback time.Duration `mapstructure:"time_range_lookback" yaml:"time_range_lookback"`
+	ShardCount        int           `mapstructure:"shard_count" yaml:"shard_count"`
 }
 
 // MemoryOptimizationConfig holds memory optimization settings
@@ -270,4 +346,45 @@ type UnifiedQueryConfig struct {
 	MaxCacheTTL       time.Duration `mapstructure:"max_cache_ttl" yaml:"max_cache_ttl"`
 	DefaultLimit      int           `mapstructure:"default_limit" yaml:"default_limit"`
 	EnableCorrelation bool          `mapstructure:"enable_correlation" yaml:"enable_correlation"`
+}
+
+// RCAConfig holds Root Cause Analysis engine configuration
+type RCAConfig struct {
+	// Enabled toggles RCA feature on/off
+	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
+
+	// ExtraMetrics lists additional metric names (PromQL/MetricsQL friendly names) to consider
+	// as impact/cause signals beyond standard OTEL metrics.
+	// Example: ["custom_api_errors", "db_connection_pool_exhaustion"]
+	ExtraMetrics []string `mapstructure:"extra_metrics" yaml:"extra_metrics"`
+
+	// ExtraLabels lists additional label keys to include as correlation/RCA dimensions
+	// beyond standard OTEL labels (service_name, span_kind, etc.).
+	// Example: ["env", "region", "cluster", "namespace", "pod_name"]
+	ExtraLabels []string `mapstructure:"extra_labels" yaml:"extra_labels"`
+
+	// ExtraLabelWeights maps label keys to their influence weight (0..1).
+	// If a label is not listed here, default weight is 0.1.
+	ExtraLabelWeights map[string]float64 `mapstructure:"extra_label_weights" yaml:"extra_label_weights"`
+
+	// KPIBindings maps KPI names to their underlying metric/label representations.
+	// Allows correlating business-layer KPIs with technical OTEL signals.
+	// Example: {"revenue_impacted": "error_rate:payment_service", "latency_spike": "p99_latency"}
+	KPIBindings map[string]string `mapstructure:"kpi_bindings" yaml:"kpi_bindings"`
+
+	// ScoringBiasKPINegative is the bias to apply when a KPI with NEGATIVE sentiment increases
+	// and correlates with candidate causes (default: 0.05).
+	ScoringBiasKPINegative float64 `mapstructure:"scoring_bias_kpi_negative" yaml:"scoring_bias_kpi_negative"`
+
+	// ScoringBiasKPIPositive is the bias to apply when a KPI with POSITIVE sentiment increases
+	// (typically a decrease in confidence for candidates, so negative; default: -0.05).
+	ScoringBiasKPIPositive float64 `mapstructure:"scoring_bias_kpi_positive" yaml:"scoring_bias_kpi_positive"`
+
+	// AlignmentPenalty is the penalty applied when extra dimensions misalign (0..1).
+	// Default: 0.2 (20% penalty per misaligned dimension).
+	AlignmentPenalty float64 `mapstructure:"alignment_penalty" yaml:"alignment_penalty"`
+
+	// AlignmentBonus is the bonus applied when extra dimensions align (0..1).
+	// Default: 0.1 (10% bonus per aligned dimension).
+	AlignmentBonus float64 `mapstructure:"alignment_bonus" yaml:"alignment_bonus"`
 }

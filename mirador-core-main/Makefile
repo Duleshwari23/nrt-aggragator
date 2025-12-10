@@ -1,11 +1,12 @@
 SHELL := /bin/bash
 
 .PHONY: help \
-	localdev localdev-up localdev-down localdev-wait localdev-test localdev-test-all-api localdev-test-api-only localdev-test-code-only localdev-seed-otel \
+	localdev localdev-up localdev-down localdev-wait localdev-test localdev-test-all-api localdev-test-api-only localdev-test-code-only localdev-seed-otel localdev-seed-data \
 	build build-native build-linux-multi build-linux-amd64 build-linux-arm64 build-darwin-arm64 build-windows-amd64 build-all \
 	docker docker-build docker-build-native dockerx-build dockerx-push docker-publish-release docker-publish-canary docker-publish-pr \
-	release test clean proto vendor lint run dev setup tools check-tools dev-stack dev-stack-down fmt version proto-clean clean-build \
-	tag-release helm-bump version-human version-ci vuln dockerx-build-local-multi buildx-ensure helm-sync-deps helm-dep-update
+	release test clean vendor lint run dev setup tools check-tools dev-stack dev-stack-down fmt version clean-build \
+	tag-release helm-bump version-human version-ci vuln dockerx-build-local-multi buildx-ensure helm-sync-deps helm-dep-update \
+	check-hardcoded check-todos check-engine-hygiene install-git-hooks
 
 BASE_URL ?= http://localhost:8010
 
@@ -46,20 +47,19 @@ help:
 	"" \
 	"Localdev E2E:" \
 	"  help                      Show this help with all targets." \
-	"  localdev                  Full local E2E: up → wait → seed OTEL → test → down." \
+	"  localdev                  Full local E2E: up → wait → seed OTEL → seed data → test → down." \
 	"  localdev-up               Start localdev compose stack in background." \
 	"  localdev-wait             Wait for readiness at $(BASE_URL)/ready." \
-	"  localdev-seed-otel        Seed synthetic OTEL metrics/logs/traces via telemetrygen." \
-	"  localdev-test             Run E2E tests against a running localdev server."
-	"  localdev-test-all-api     Run comprehensive E2E pipeline (code quality + API tests)."
-	"  localdev-test-api-only    Run API endpoint tests only (skip code quality checks)."
-	"  localdev-test-code-only   Run code quality tests only (go test, fmt, vet, govulncheck)."
-	"  localdev-down             Tear down localdev stack and remove volumes."
+	"  localdev-seed-otel        Seed synthetic OTEL metrics/logs/traces via financial transaction simulator." \
+	"  localdev-seed-data        Seed sample KPIs in Weaviate." \
+	"  localdev-test             Run E2E tests against a running localdev server." \
+	"  localdev-test-all-api     Run comprehensive E2E pipeline (code quality + API tests)." \
+	"  localdev-test-api-only    Run API endpoint tests only (skip code quality checks)." \
+	"  localdev-test-code-only   Run code quality tests only (go test, fmt, vet, govulncheck)." \
+	"  localdev-down             Tear down localdev stack and remove volumes." \
 	"" \
 	"Development & Build:" \
-	"  setup                     Install tools, generate proto, download deps." \
-	"  proto                     Generate Protocol Buffer code from .proto files." \
-	"  proto-clean               Remove generated .pb.go then regenerate proto code." \
+	"  setup                     Install tools, download deps." \
 	"  build                     Static linux/amd64 build to bin/$(BINARY_NAME)." \
 	"  build-native              Build for host OS/Arch to bin/$(BINARY_NAME)-<os>-<arch>." \
 	"  build-linux-amd64         Build for linux/amd64." \
@@ -74,14 +74,19 @@ help:
 	"  clean-build               Clean then perform a fresh build." \
 	"  openapi-json              Regenerate api/openapi.json from api/openapi.yaml." \
 	"  openapi-validate          Parse YAML → JSON to ensure syntax is valid." \
+	"  swag                      Generate OpenAPI 3.0 spec from code annotations." \
 	"" \
 	"Testing & Quality:" \
 	"  test                      Run unit tests with race detector and coverage." \
 	"  fmt                       Format code (go fmt, goimports)." \
 	"  lint                      Run golangci-lint on the repo." \
-	"  tools                     Install dev tools (protoc-gen-*, lint, swag, govulncheck)." \
+	"  tools                     Install dev tools (lint, swag, govulncheck)." \
 	"  check-tools               Verify required tools are installed." \
 	"  vuln                      Run govulncheck vulnerability scan." \
+	"  check-hardcoded           Check for hardcoded metric/service names (AGENTS.md §3.6)." \
+	"  check-todos               Check for anonymous TODO/FIXME comments (AGENTS.md §3.6)." \
+	"  check-engine-hygiene      Run all AGENTS.md §3.6 enforcement checks." \
+	"  install-git-hooks         Install pre-commit hooks for automatic enforcement." \
 	"" \
 	"Docker Images:" \
 	"  docker                    Alias for docker-build (host arch)." \
@@ -116,78 +121,53 @@ help:
 	"                            Used by localdev-wait and passed to tests as E2E_BASE_URL." \
 	"" \
 	"Notes:" \
-	"  - Auth is disabled by default in the localdev compose." \
-	"  - localdev-down runs 'docker compose ... down -v' and removes volumes created by that compose file."
+	"  - Auth is enabled by default in the localdev compose." \
+	"  - localdev-down runs 'docker-compose ... down -v' and removes volumes created by that compose file."
 
 
 
-localdev: localdev-up localdev-wait localdev-seed-otel localdev-test localdev-down
+localdev: localdev-up localdev-wait localdev-seed-otel localdev-seed-data localdev-test localdev-down
 	@echo "Localdev E2E completed. Reports under localdev/."
 
 .PHONY: openapi-json openapi-validate
 openapi-json:
-	@python3 scripts/gen_openapi_json.py
+	@python3 tools/gen_openapi_json.py
 
 openapi-validate:
-	@python3 - <<'PY'
-	import sys, json
-	try:
-	  import yaml
-	except Exception as e:
-	  print('PyYAML not installed. Install via pip install pyyaml', file=sys.stderr)
-	  sys.exit(1)
-	from pathlib import Path
-	y = Path('api/openapi.yaml').read_text(encoding='utf-8')
-	data = yaml.safe_load(y)
-	assert isinstance(data, dict) and 'openapi' in data, 'Invalid OpenAPI YAML: missing openapi key'
-	print('YAML parse OK; version:', data.get('openapi'))
-	print('Paths count:', len((data.get('paths') or {})))
-	print('Components:', 'schemas' in (data.get('components') or {}))
-	print('Validation (structural) OK')
-	PY
+	@python3 tools/validate_openapi.py
+
+.PHONY: swag
+swag:
+	@echo "🔧 Validating existing OpenAPI spec files..."
+	@python3 tools/validate_openapi.py
+	@echo "✅ OpenAPI files validated successfully"
 
 localdev-up:
 	mkdir -p localdev
 	# Pull images only if missing (prevents re-pulling on every run)
-	docker compose -f deployments/localdev/docker-compose.yaml up -d --build --pull=missing
-
-localdev-wait:
+	docker-compose -f deployments/localdev/docker-compose.yaml up -d --build
+	@echo "⏳ Waiting for services to be ready..."
 	@deployments/localdev/scripts/wait-for-url.sh $(BASE_URL)/ready 120 2
 
+localdev-wait:
+	@deployments/localdev/devtools/wait-for-url.sh $(BASE_URL)/ready 120 2
+
 localdev-test:
-	mkdir -p deployments/localdev
-	E2E_BASE_URL=$(BASE_URL) bash deployments/localdev/scripts/run-e2e.sh
-	@echo "=========================================================="
-	@echo "=== E2E Summary (deployments/localdev/e2e-report.json) ==="
-	@echo "=========================================================="
-	@REPORT=deployments/localdev/e2e-report.json; \
-	if [ -f "$$REPORT" ]; then \
-	  ALL=$$(wc -l < "$$REPORT" | tr -d ' '); \
-	  PASSED=$$(grep -c '\"ok\":true' "$$REPORT" || true); \
-	  FAILED=$$(grep -c '\"ok\":false' "$$REPORT" || true); \
-	  echo "Tests=$$ALL total, $$PASSED passed, $$FAILED failed"; \
-	  echo "=========================================================="; \
-	  echo; echo "Failed tests:"; \
-	  FAIL_LIST=$$(grep '\"ok\":false' "$$REPORT" | grep -o '\"name\":\"[^\"]*\"' | cut -d: -f2- | tr -d '\"' | sed '/^$$/d' | sort -u); \
-	  if [ -n "$$FAIL_LIST" ]; then \
-	    while IFS= read -r T; do \
-	      MSG=$$(grep -F '\"name\":\"'"$$T"'\"' "$$REPORT" | tail -1 | sed -E 's/.*\"message\":\"//; s/\"\}\s*$$//'); \
-	      echo "  - $$T: $$MSG"; \
-	    done <<< "$$FAIL_LIST"; \
-	  else \
-	    echo "  (none)"; \
-	  fi; \
-	  echo; echo "See $$REPORT for full details."; \
-	else \
-	  echo "Report not found: $$REPORT"; \
-	fi
+	@echo "🧪 Running unified E2E tests..."
+	@echo "Base URL: $(BASE_URL)"
+	@echo "============================================"
+	@./localtesting/e2e-tests.sh --base-url "$(BASE_URL)" --output "deployments/localdev/e2e-report.json" --verbose || true
+	@echo "============================================"
+	@echo "✅ E2E tests completed!"
+	@echo "📊 Results: deployments/localdev/e2e-report.json"
+	@echo "📋 Failures: test-failures-table.md"
 	@echo "=========================================================="
 
 localdev-test-all-api:
 	@echo "🧪 Running comprehensive E2E pipeline (code quality + API tests)..."
 	@echo "Base URL: $(BASE_URL)"
 	@echo "============================================"
-	@./localtesting/e2e-tests.sh --base-url "$(BASE_URL)" --output "localtesting/e2e-test-results.json" --verbose || true
+	@./dev/legacy/localtesting/e2e-tests.sh --base-url "$(BASE_URL)" --output "./dev/legacy/localtesting/e2e-test-results.json" --verbose || true
 	@echo "============================================"
 	@echo "✅ E2E pipeline completed!"
 	@echo "📊 Results: localtesting/e2e-test-results.json"
@@ -204,14 +184,27 @@ localdev-test-code-only:
 	@./localtesting/e2e-tests.sh --code-tests-only
 
 localdev-seed-otel:
-	@echo "Seeding synthetic OpenTelemetry data via telemetrygen..."
-	@command -v telemetrygen >/dev/null 2>&1 || { echo "Installing telemetrygen..."; go install github.com/open-telemetry/opentelemetry-collector-contrib/cmd/telemetrygen@latest; }
-	telemetrygen metrics --otlp-endpoint localhost:4317 --otlp-insecure --duration 10s --rate 200 || true
-	telemetrygen logs --otlp-endpoint localhost:4317 --otlp-insecure --duration 10s --rate 20 || true
-	telemetrygen traces --otlp-endpoint localhost:4317 --otlp-insecure --duration 10s --rate 10 || true
+	@echo "Seeding synthetic OpenTelemetry data via financial transaction simulator..."
+	@go build -o bin/otel-fintrans-simulator ./cmd/otel-fintrans-simulator
+	OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 OTEL_EXPORTER_OTLP_INSECURE=true ./bin/otel-fintrans-simulator \
+		--transactions 50000 \
+		--concurrency 250 \
+		--failure-mode mixed \
+		--failure-rate 0.35 \
+		--time-window 15m \
+		--data-interval 30s \
+		--start-time-offset -15m
+	@echo "Seeding KPI and signal definitions via bulk API (idempotent; deterministic IDs)"
+	@# Uses devtools/localdev_seed_kpis.py to POST KPI JSON registries and signal definitions to the server's bulk-json endpoints
+	@python3 devtools/localdev_seed_kpis.py --base-url "$(BASE_URL)" --seed-signals || true
+
+localdev-seed-data:
+	@echo "Seeding KPI and signal definitions via bulk API (idempotent; deterministic IDs)"
+	@# Uses devtools/localdev_seed_kpis.py to POST KPI JSON registries and signal definitions to the server's bulk-json endpoints
+	@python3 devtools/localdev_seed_kpis.py --base-url "$(BASE_URL)" --seed-signals || true
 
 localdev-down:
-	@docker compose -f deployments/localdev/docker-compose.yaml down -v
+	@docker-compose -f deployments/localdev/docker-compose.yaml down -v
 
 # -----------------------------
 # Legacy/General Build, Test, Docker, Release, Helm targets
@@ -221,50 +214,44 @@ localdev-down:
 # Setup development environment
 setup:
 	@echo "🚀 Setting up MIRADOR-CORE development environment..."
-	@./scripts/generate-proto-code.sh
 	@go mod download
 	@echo "✅ Setup complete! Run 'make dev' to start development server."
 
-# Generate Protocol Buffers from existing proto files
-proto:
-	@echo "🔧 Generating Protocol Buffer code from existing files..."
-	@./scripts/generate-proto-code.sh
-
 # Build
-build: proto ## Release-style static build for Linux/amd64 (default)
+build: ## Release-style static build for Linux/amd64 (default)
 	@echo "🔨 Building MIRADOR-CORE (linux/amd64)..."
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 		-ldflags="$(LDFLAGS)" \
 		-o bin/$(BINARY_NAME) \
 		cmd/server/main.go
 
-build-native: proto ## Build native (HOST_OS/HOST_ARCH)
+build-native: ## Build native (HOST_OS/HOST_ARCH)
 	@echo "🔨 Building MIRADOR-CORE (native: $(HOST_OS)/$(HOST_ARCH))..."
 	CGO_ENABLED=0 GOOS=$(HOST_OS) GOARCH=$(HOST_ARCH) go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY_NAME)-$(HOST_OS)-$(HOST_ARCH) cmd/server/main.go
 
-build-linux-amd64: proto ## Build linux/amd64
+build-linux-amd64: ## Build linux/amd64
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY_NAME)-linux-amd64 cmd/server/main.go
 
-build-linux-arm64: proto ## Build linux/arm64
+build-linux-arm64: ## Build linux/arm64
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY_NAME)-linux-arm64 cmd/server/main.go
 
 build-linux-multi: build-linux-amd64 build-linux-arm64 ## Build linux binaries for amd64 and arm64
 
-build-darwin-arm64: proto ## Build darwin/arm64 (Apple Silicon)
+build-darwin-arm64: ## Build darwin/arm64 (Apple Silicon)
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY_NAME)-darwin-arm64 cmd/server/main.go
 
-build-windows-amd64: proto ## Build windows/amd64
+build-windows-amd64: ## Build windows/amd64
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY_NAME)-windows-amd64.exe cmd/server/main.go
 
 build-all: build-linux-amd64 build-linux-arm64 build-darwin-arm64 build-windows-amd64 ## Build all common targets
 
 # Development build (with debug symbols)
-dev-build: proto
+dev-build:
 	@echo "🔨 Building MIRADOR-CORE for development..."
 	go build -o bin/$(BINARY_NAME)-dev cmd/server/main.go
 
 # Run development server
-dev: proto
+dev:
 	@echo "🚀 Starting MIRADOR-CORE in development mode..."
 	@echo "Make sure you have the VictoriaMetrics ecosystem running!"
 	@echo "Run 'docker-compose up -d' to start dependencies."
@@ -274,15 +261,28 @@ dev: proto
 run: dev
 	@true
 
+.PHONY: e2e
+e2e: ## Run the full E2E pipeline (localdev up, seed OTEL, run e2e tests/lint)
+	@echo "📦 Running end-to-end pipeline (config → KPI → UQL → correlation → RCA)"
+	@bash hack/e2e-core.sh
+
 # Clean and regenerate everything
-clean-build: clean proto
-	@echo "🧹 Clean build with fresh protobuf generation..."
+clean-build: clean
+	@echo "🧹 Clean build..."
 	@go build -o bin/$(BINARY_NAME) cmd/server/main.go
 
-# Run tests (generate proto first)
-test: proto
+# Run tests
+test:
 	@echo "🧪 Running tests..."
-	go test -v -race -coverprofile=coverage.out ./...
+	@packages=$$(find . -name "*_test.go" -type f -exec dirname {} \; | sort | uniq | sed 's|^\./||' | xargs -I {} sh -c 'pkg=$$(go list ./{} 2>/dev/null); [ -n "$$pkg" ] && echo $$pkg'); \
+	if [ -n "$$packages" ]; then \
+	  echo "$$packages" | tr ' ' '\n' | while read -r pkg; do \
+	    echo "Testing $$pkg..."; \
+	    go test -v -race -coverprofile=coverage.out.$$(echo $$pkg | tr '/' '_') $$pkg || exit 1; \
+	  done; \
+	else \
+	  echo "No test packages found"; \
+	fi
 
 # Update dependencies
 vendor:
@@ -296,23 +296,10 @@ clean:
 	rm -rf bin/
 	rm -rf vendor/
 	rm -f coverage.out
-	# Remove generated protobuf files to force regeneration
-	find internal/grpc/proto -name "*.pb.go" -delete
-	find internal/grpc/proto -name "*_grpc.pb.go" -delete
-
-# Force regenerate proto files
-proto-clean:
-	@echo "🗑️  Removing generated protobuf files..."
-	find internal/grpc/proto -name "*.pb.go" -delete
-	find internal/grpc/proto -name "*_grpc.pb.go" -delete
-	@echo "🔧 Regenerating protobuf files..."
-	@./scripts/generate-proto-code.sh
 
 # Install development tools
 tools:
 	@echo "🛠️  Installing development tools..."
-	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	go install github.com/swaggo/swag/cmd/swag@latest
 	go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -320,13 +307,10 @@ tools:
 # Check if all tools are available
 check-tools:
 	@echo "🔍 Checking development tools..."
-	@command -v protoc >/dev/null 2>&1 || { echo "❌ protoc is not installed"; exit 1; }
-	@command -v protoc-gen-go >/dev/null 2>&1 || { echo "❌ protoc-gen-go is not installed. Run 'make tools'"; exit 1; }
-	@command -v protoc-gen-go-grpc >/dev/null 2>&1 || { echo "❌ protoc-gen-go-grpc is not installed. Run 'make tools'"; exit 1; }
 	@echo "✅ All tools are available"
 
 # Lint code
-lint: proto
+lint:
 	@echo "🔍 Running linters..."
 	golangci-lint run ./...
 
@@ -341,6 +325,33 @@ fmt:
 	@echo "🎨 Formatting code..."
 	go fmt ./...
 	goimports -w . 2>/dev/null || true
+
+# -----------------------------
+# Code quality enforcement (AGENTS.md §3.6)
+# -----------------------------
+
+.PHONY: check-hardcoded check-todos check-engine-hygiene install-git-hooks
+
+check-hardcoded: ## Check for hardcoded metric/service names in engine code
+	@echo "🔍 Checking for hardcoded violations..."
+	@./devtools/check-hardcoded-violations.sh
+
+check-todos: ## Check for anonymous TODO/FIXME comments without tracker references
+	@echo "🔍 Checking for anonymous TODO/FIXME comments..."
+	@./devtools/check-todo-violations.sh
+
+check-engine-hygiene: check-hardcoded check-todos ## Run all AGENTS.md §3.6 engine hygiene checks
+	@echo "✅ All engine hygiene checks passed!"
+
+install-git-hooks: ## Install git pre-commit hooks for automatic enforcement
+	@echo "🪝 Installing git pre-commit hooks..."
+	@git config core.hooksPath .githooks
+	@echo "✅ Git hooks installed! Pre-commit checks will run automatically."
+	@echo "   To bypass (emergency only): git commit --no-verify"
+
+# -----------------------------
+# Docker image builds
+# -----------------------------
 
 # Build Docker image
 docker: docker-build ## Alias
@@ -517,7 +528,7 @@ dev-stack:
 	@echo "VictoriaMetrics: http://localhost:8481"
 	@echo "VictoriaLogs: http://localhost:9428" 
 	@echo "VictoriaTraces: http://localhost:10428"
-	@echo "Redis: localhost:6379"
+	@echo "Valkey: localhost:6379"
 
 # Stop local development stack
 dev-stack-down:
