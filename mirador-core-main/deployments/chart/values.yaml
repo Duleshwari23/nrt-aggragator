@@ -1,6 +1,6 @@
 # Default values for mirador-core.
 
-replicaCount: 3
+replicaCount: 1
 
 image:
   repository: repo.npci.org.in/platformbuilds/mirador-core
@@ -418,7 +418,7 @@ valkey:
     # secretName: "" # defaults to <release>-valkey
     # passwordKey: "valkey-password" # default key in the subchart secret
   replica:
-    replicaCount: 3
+    replicaCount: 2
     persistence:
       enabled: true
       storageClass: rook-ceph-block
