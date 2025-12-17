@@ -1,16 +1,16 @@
 # Default values for mirador-core.
 
-replicaCount: 3
+replicaCount: 1
 
 image:
-  repository: platformbuilds/mirador-core
+  repository: repo.npci.org.in/platformbuilds/mirador-core
   # Use a multi-arch tag (linux/amd64 + linux/arm64) so nodes pull the correct architecture automatically
   tag: v9.0.0
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
-nameOverride: ""
-fullnameOverride: ""
+nameOverride: "mirador-core"
+fullnameOverride: "mirador-core"
 
 serviceAccount:
   create: true
@@ -19,7 +19,7 @@ serviceAccount:
 
 podAnnotations:
   prometheus.io/scrape: "true"
-  prometheus.io/port: "8010"
+  prometheus.io/port: "8080"
   prometheus.io/path: "/metrics"
 
 # Optional additional Pod labels
@@ -37,7 +37,7 @@ service:
   type: ClusterIP
   ports:
     http:
-      port: 8010
+      port: 8080
       targetPort: http-api
     grpc:
       port: 9090
@@ -136,7 +136,7 @@ config:
 mirador:
   environment: production
   log_level: info
-  port: 8010
+  port: 8080
   uploads:
     # Maximum size (in bytes) for CSV bulk uploads (services/operations/metrics/logs)
     # Defaults to 5 MiB when omitted.
@@ -147,8 +147,9 @@ mirador:
       # Optional friendly name for the primary source
       name: "primary"
       endpoints:
-        - "http://vm-select-0.vm-select:8481"
-        - "http://vm-select-1.vm-select:8481"
+        - "http://hydnar-spanm-victoria-metrics-cluster-vmselect.upibda.svc:8481/select/0/prometheus"
+        # - "http://vm-select-0.vm-select:8481"
+        # - "http://vm-select-1.vm-select:8481"
       timeout: 30000
     # Optional: additional metrics sources for aggregation
     # Each entry supports the same fields as victoria_metrics (name, endpoints, timeout, username, password, discovery)
@@ -157,8 +158,9 @@ mirador:
       # Optional friendly name for the primary logs source
       name: "primary"
       endpoints:
-        - "http://vl-select-0.vl-select:9428"
-        - "http://vl-select-1.vl-select:9428"
+        - "http://hydnar-fin-txnlogs-vlcluster-vlselect.upibda.svc:9471"
+        # - "http://vl-select-0.vl-select:9428"
+        # - "http://vl-select-1.vl-select:9428"
       timeout: 30000
     # Optional: additional logs sources for aggregation
     # Each entry supports the same fields as victoria_logs (name, endpoints, timeout, username, password, discovery)
@@ -167,8 +169,9 @@ mirador:
       # Optional friendly name for the primary traces source
       name: "primary"
       endpoints:
-        - "http://vt-select-0.vt-select:10428"
-        - "http://vt-select-1.vt-select:10428"
+        - "http://chnsir-fin-traces-vtcluster-vtselect.upibda.svc.chnsir.sense.npcitech.io:10471"
+        # - "http://vt-select-0.vt-select:10428"
+        # - "http://vt-select-1.vt-select:10428"
       timeout: 30000
     # Optional: additional traces sources for aggregation
     # Each entry supports the same fields as victoria_traces (name, endpoints, timeout, username, password, discovery)
@@ -231,7 +234,7 @@ mirador:
   weaviate:
     enabled: true
     scheme: http
-    host: weaviate.mirador.svc.cluster.local
+    host: weaviate.mirador.svc
     port: 8080
     api_key: ""
     use_official: false
@@ -239,7 +242,7 @@ mirador:
 # Bleve storage configuration
 bleveStorage:
   enabled: true
-  size: "50Gi"
+  size: "25Gi"
   storageClassName: ""  # Use default storage class if empty
   accessModes:
     - ReadWriteOnce
@@ -332,27 +335,73 @@ discovery:
     useSRV: false
 
 # Bitnami Valkey subchart configuration
+# valkey:
+#   enabled: true
+#   version: "^2.0.0"
+#   metrics:
+#     enabled: true
+#     serviceMonitor:
+#       enabled: false
+#     service:
+#       type: LoadBalancer  # Expose metrics externally
+#   # serviceName: my-valkey
+#   # headlessServiceName: my-valkey-headless
+#   # Image overrides for the Bitnami Valkey subchart. Leave commented to use
+#   # the subchart defaults. Uncomment to pin a custom image/repository/tag.
+#   # image:
+#   #   registry: docker.io
+#   #   repository: bitnami/valkey
+#   #   tag: "8.0.x"
+#   #   # Recommended: pin to a digest to satisfy Bitnami security checks
+#   #   # and avoid needing global.security.allowInsecureImages=true
+#   #   digest: "sha256:<oci-image-digest>"
+#   #   pullPolicy: IfNotPresent
+#   #   # pullSecrets:
+#   #   #   - myRegistrySecret
+#   # Scope Bitnami "global" settings to the Valkey subchart only. This avoids
+#   # affecting other Bitnami charts you may add later. Default keeps images
+#   # strict (false). Set to true only if you override image without a digest.
+#   global:
+#     security:
+#       allowInsecureImages: false
+#   architecture: standalone # set to 'replication' for production
+#   auth:
+#     enabled: false
+#     # existingSecret: my-valkey-secret
+#     # password: ""
+#     # secretName: "" # defaults to <release>-valkey
+#     # passwordKey: "valkey-password" # default key in the subchart secret
+#   replica:
+#     replicaCount: 1
+#     persistence:
+#       enabled: true
+#   primary:
+#     persistence:
+#       enabled: true
+#   resources:
+#     requests:
+#       cpu: 100m
+#       memory: 128Mi
+#     limits:
+#       cpu: 500m
+#       memory: 512Mi
+
 valkey:
   enabled: true
   version: "^2.0.0"
-  metrics:
-    enabled: true
-    serviceMonitor:
-      enabled: false
-    service:
-      type: LoadBalancer  # Expose metrics externally
+  # Optional: override computed service names if your cluster renames resources
   # serviceName: my-valkey
   # headlessServiceName: my-valkey-headless
   # Image overrides for the Bitnami Valkey subchart. Leave commented to use
   # the subchart defaults. Uncomment to pin a custom image/repository/tag.
-  # image:
-  #   registry: docker.io
-  #   repository: bitnami/valkey
-  #   tag: "8.0.x"
-  #   # Recommended: pin to a digest to satisfy Bitnami security checks
-  #   # and avoid needing global.security.allowInsecureImages=true
-  #   digest: "sha256:<oci-image-digest>"
-  #   pullPolicy: IfNotPresent
+  image:
+    registry: repo.npci.org.in:443
+    repository: bitnamilegacy/valkey
+    tag: "8.0.2"
+    # Recommended: pin to a digest to satisfy Bitnami security checks
+    # and avoid needing global.security.allowInsecureImages=true
+    # digest: "sha256:<oci-image-digest>"
+    pullPolicy: IfNotPresent
   #   # pullSecrets:
   #   #   - myRegistrySecret
   # Scope Bitnami "global" settings to the Valkey subchart only. This avoids
@@ -360,8 +409,8 @@ valkey:
   # strict (false). Set to true only if you override image without a digest.
   global:
     security:
-      allowInsecureImages: false
-  architecture: standalone # set to 'replication' for production
+      allowInsecureImages: true
+  architecture: replication # set to 'replication' for production
   auth:
     enabled: false
     # existingSecret: my-valkey-secret
@@ -369,19 +418,21 @@ valkey:
     # secretName: "" # defaults to <release>-valkey
     # passwordKey: "valkey-password" # default key in the subchart secret
   replica:
-    replicaCount: 1
+    replicaCount: 2
     persistence:
       enabled: true
+      storageClass: rook-ceph-block
   primary:
     persistence:
       enabled: true
+      storageClass: rook-ceph-block
   resources:
     requests:
       cpu: 100m
       memory: 128Mi
     limits:
-      cpu: 500m
-      memory: 512Mi
+      cpu: 64
+      memory: 128Gi
 
 probes:
   liveness:
@@ -422,8 +473,10 @@ global:
 weaviate:
   enabled: true
   image:
-    repository: cr.weaviate.io/semitechnologies/weaviate
-    tag: 1.25.4
+    # repository: cr.weaviate.io/semitechnologies/weaviate
+    # tag: 1.25.4
+    repository: repo.npci.org.in:443/semitechnologies/weaviate
+    tag: stable-v1.31-40a3d6c
     pullPolicy: IfNotPresent
   replicas: 1
   service:
@@ -454,7 +507,7 @@ weaviate:
     # Kubernetes-based deployments. Change to "none" to opt-out when you use
     # BYO embeddings (Valkey/other) or do not have a transformer inference
     # backend available.
-    DEFAULT_VECTORIZER_MODULE: "text2vec-transformers"
+    DEFAULT_VECTORIZER_MODULE: "text2vec-transformers" 
     PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
     QUERY_DEFAULTS_LIMIT: "25"
     CLUSTER_GOSSIP_BIND_PORT: "7100"
