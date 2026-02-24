@@ -11,6 +11,7 @@ import (
 	"github.com/platformbuilds/mirador-nrt-aggregator/internal/model"
 
 	collmet "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	colltr "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	com "go.opentelemetry.io/proto/otlp/common/v1"
 	met "go.opentelemetry.io/proto/otlp/metrics/v1"
 	res "go.opentelemetry.io/proto/otlp/resource/v1"
@@ -30,9 +31,14 @@ type processor struct {
 }
 
 func New(cfg config.ProcessorCfg) *processor {
-	bounds := cfg.HistogramBuckets
-	if len(bounds) == 0 {
-		bounds = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
+	bounds := []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
+	if v, ok := cfg.Extra["histogram_buckets"].([]any); ok && len(v) > 0 {
+		bounds = make([]float64, 0, len(v))
+		for _, it := range v {
+			if f, ok := it.(float64); ok {
+				bounds = append(bounds, f)
+			}
+		}
 	}
 
 	// Error handling config
@@ -67,7 +73,7 @@ func New(cfg config.ProcessorCfg) *processor {
 	}
 
 	return &processor{
-		dimensions:         cfg.Dimensions,
+		dimensions:         []string{"service.name","http.method","http.route","span.kind","status.code"},
 		errorEventAttrDims: evtAttrDims,
 		errorEventNames:    lowerSlice(evtNames),
 		errFromStatus:      errFromStatus,
@@ -110,8 +116,8 @@ func (p *processor) Start(ctx context.Context, in <-chan any, out chan<- any) er
 }
 
 func (p *processor) tracesToResourceMetrics(raw []byte) []*met.ResourceMetrics {
-	var et tr.ExportTracesServiceRequest
-	if err := proto.Unmarshal(raw, &et); err != nil {
+	et := &colltr.ExportTraceServiceRequest{}
+	if err := proto.Unmarshal(raw, et); err != nil {
 		log.Printf("[spanmetrics] cannot unmarshal traces: %v", err)
 		return nil
 	}

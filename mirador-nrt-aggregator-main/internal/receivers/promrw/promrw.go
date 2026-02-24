@@ -242,7 +242,7 @@ func (r *Receiver) buildTLS() (*tls.Config, error) {
 		MinVersion:   tls.VersionTLS12,
 		Certificates: []tls.Certificate{cert},
 	}
-	if r.tlsClientCAFile != "", {
+	if r.tlsClientCAFile != "" {
 		pem, err := os.ReadFile(r.tlsClientCAFile)
 		if err != nil {
 			return nil, err

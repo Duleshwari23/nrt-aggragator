@@ -3,6 +3,7 @@ package weaviate
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,7 +26,7 @@ type Exporter struct {
 
 // New creates a new Weaviate exporter from config.
 func New(cfg config.ExporterCfg) *Exporter {
-	tmpl := "{{.Service}}:{{.WindowStart}}"
+	tmpl := "{{.Service}}:{{.WindowStart}}:{{.SummaryText}}"
 	if cfg.IDTemplate != "" {
 		tmpl = cfg.IDTemplate
 	}
@@ -60,7 +61,17 @@ func (e *Exporter) Start(ctx context.Context, in <-chan model.Aggregate) error {
 
 // upsert builds a Weaviate object and sends it to /v1/objects.
 func (e *Exporter) upsert(ctx context.Context, a model.Aggregate) error {
-	id := e.renderID(a)
+	rawID := e.renderID(a)
+	id := toUUID5(rawID)
+
+	// Serialize labels map to JSON string (Weaviate text field)
+	labelsJSON := "{}"
+	if a.Labels != nil {
+		if lb, err := json.Marshal(a.Labels); err == nil {
+			labelsJSON = string(lb)
+		}
+	}
+
 	body := map[string]any{
 		"class":  e.class,
 		"id":     id,
@@ -77,7 +88,7 @@ func (e *Exporter) upsert(ctx context.Context, a model.Aggregate) error {
 			"error_rate":    a.ErrorRate,
 			"anomaly_score": a.AnomalyScore,
 			"count":         a.Count,
-			"labels":        a.Labels,
+			"labels":        labelsJSON,
 			"locator":       a.Locator,
 		},
 	}
@@ -90,16 +101,17 @@ func (e *Exporter) upsert(ctx context.Context, a model.Aggregate) error {
 		return err
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
 
-	// Handle already exists (409) gracefully.
-	if resp.StatusCode == 409 {
-		// Could add PATCH support here.
+	// Handle already exists (409 or 422) gracefully.
+	if resp.StatusCode == 409 || resp.StatusCode == 422 {
+		io.Copy(io.Discard, resp.Body)
 		return nil
 	}
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("weaviate HTTP %d", resp.StatusCode)
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("weaviate HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
+	io.Copy(io.Discard, resp.Body)
 	return nil
 }
 
@@ -110,4 +122,26 @@ func (e *Exporter) renderID(a model.Aggregate) string {
 		return fmt.Sprintf("%s:%d", a.Service, a.WindowStart)
 	}
 	return sb.String()
+}
+
+// toUUID5 generates a deterministic UUID v5 from the given name string
+// using the DNS namespace (any fixed namespace would work).
+func toUUID5(name string) string {
+	// UUID v5 namespace (DNS): 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+	namespace := [16]byte{
+		0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1,
+		0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,
+	}
+	h := sha1.New()
+	h.Write(namespace[:])
+	h.Write([]byte(name))
+	sum := h.Sum(nil)
+
+	// Set version 5
+	sum[6] = (sum[6] & 0x0f) | 0x50
+	// Set variant to RFC 4122
+	sum[8] = (sum[8] & 0x3f) | 0x80
+
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		sum[0:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
 }

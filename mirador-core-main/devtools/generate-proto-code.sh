@@ -1,1 +1,0 @@
-../tools/generate-proto-code.sh

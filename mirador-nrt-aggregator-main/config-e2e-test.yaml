@@ -1,0 +1,51 @@
+# E2E test config for mirador-nrt-aggregator
+# OTLP HTTP only, hash vectorizer (no Ollama), Weaviate on localhost
+# Includes traces, metrics, AND logs pipelines
+
+receivers:
+  otlphttp:
+    endpoint: ":8052"
+
+processors:
+  spanmetrics:
+    dimensions: ["service.name","http.method","http.route","span.kind","status.code"]
+    histogram_buckets: [0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10]
+    error_from_status: true
+    error_from_events: true
+  summarizer:
+    window_seconds: 10
+    service_attribute: "service.name"
+  otlplogs:
+    service_key: "service.name"
+    level_alias: "level"
+  logsum:
+    window_seconds: 10
+    service_field: "service"
+    level_field: "level"
+    error_levels: ["error", "fatal"]
+  iforest:
+    features: ["p99","error_rate","rps"]
+    threshold: 0.7
+    model_path: "iforest-model.json"
+  vectorizer:
+    mode: "hash"
+    hash_dim: 384
+
+exporters:
+  weaviate:
+    endpoint: "http://localhost:8080"
+    class: "MiradorAggregate"
+
+pipelines:
+  traces:
+    receivers: [otlphttp]
+    processors: [spanmetrics, summarizer, iforest, vectorizer]
+    exporters: [weaviate]
+  metrics:
+    receivers: [otlphttp]
+    processors: [summarizer, iforest, vectorizer]
+    exporters: [weaviate]
+  logs:
+    receivers: [otlphttp]
+    processors: [otlplogs, logsum, iforest, vectorizer]
+    exporters: [weaviate]

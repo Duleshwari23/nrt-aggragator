@@ -138,7 +138,7 @@ func (r *Receiver) Start(ctx context.Context, out chan<- model.Envelope) error {
 
 	cliOpts := ps.ClientOptions{
 		URL:                        r.serviceURL,
-		AllowTLSInsecureConnection: r.tlsAllowInsecure,
+		TLSAllowInsecureConnection: r.tlsAllowInsecure,
 		TLSTrustCertsFilePath:      r.tlsTrustCertsPath,
 	}
 

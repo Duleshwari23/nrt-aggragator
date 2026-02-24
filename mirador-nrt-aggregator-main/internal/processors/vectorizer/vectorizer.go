@@ -10,6 +10,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -253,8 +254,8 @@ func (p *processor) buildLogsText(a model.Aggregate) string {
 	parts := []string{
 		"kind=log",
 		"service=" + a.Service,
-		"ts_start=" + strconv(a.WindowStart),
-		"ts_end=" + strconv(a.WindowEnd),
+		"ts_start=" + formatStrconv(a.WindowStart),
+		"ts_end=" + formatStrconv(a.WindowEnd),
 	}
 
 	// success default: success if error_rate ~ 0
@@ -367,8 +368,8 @@ func (p *processor) buildTracesText(a model.Aggregate) string {
 	parts := []string{
 		"kind=trace",
 		"service=" + a.Service,
-		"ts_start=" + strconv(a.WindowStart),
-		"ts_end=" + strconv(a.WindowEnd),
+		"ts_start=" + formatStrconv(a.WindowStart),
+		"ts_end=" + formatStrconv(a.WindowEnd),
 		"p50=" + f6(a.P50),
 		"p95=" + f6(a.P95),
 		"p99=" + f6(a.P99),
@@ -555,10 +556,10 @@ func normalize(v []float32) {
 }
 
 func f6(x float64) string {
-	return strconv(x) //  reuse compact integer/float formatter
+	return formatStrconv(x) //  reuse compact integer/float formatter
 }
 
-func strconv(x interface{}) string {
+func formatStrconv(x interface{}) string {
 	switch t := x.(type) {
 	case int64:
 		return strconvI64(t)
@@ -593,9 +594,6 @@ func strconvFmtFloat(f float64, fmt byte, prec, bitSize int) string {
 }
 
 // --- bring in strconv cleanly ---
-import (
-	"strconv"
-)
 
 // ---------------------- PCA loading ----------------------
 

@@ -244,7 +244,7 @@ func (p *processor) consumeHistogram(name string, res map[string]string, h *met.
 			}
 			ub := bounds[i]
 			for j := 0; j < reps; j++ {
-				st.td.Add(ub, 1)
+				st.td.Add(ub)
 			}
 			st.count += uint64(reps)
 		}
@@ -255,7 +255,7 @@ func (p *processor) consumeHistogram(name string, res map[string]string, h *met.
 
 func (p *processor) consumePromRW(raw []byte, winStart int64) {
 	var wr prompb.WriteRequest
-	if err := proto.Unmarshal(raw, &wr); err != nil {
+	if err := wr.Unmarshal(raw); err != nil {
 		log.Printf("[summarizer] failed to unmarshal PromRW: %v", err)
 		return
 	}
@@ -279,7 +279,7 @@ func (p *processor) consumePromRW(raw []byte, winStart int64) {
 			for _, s := range ts.Samples {
 				reps := int(minf(s.Value, float64(p.bucketSampleCap)))
 				for j := 0; j < reps; j++ {
-					st.td.Add(ub, 1)
+					st.td.Add(ub)
 				}
 				st.count += uint64(maxf(s.Value, 0))
 			}
@@ -315,7 +315,10 @@ func (p *processor) ensureSvc(name string) *svc {
 		return s
 	}
 	ns := &svc{
-		td:     tdigest.New(),
+		td: func() *tdigest.TDigest {
+			td, _ := tdigest.New(tdigest.Compression(100)) // Ignore error for now as it shouldn't happen with valid compression
+			return td
+		}(),
 		labels: map[string]string{},
 	}
 	p.state[name] = ns

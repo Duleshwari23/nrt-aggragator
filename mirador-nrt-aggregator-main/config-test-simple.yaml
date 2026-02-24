@@ -1,0 +1,37 @@
+receivers:
+  otlpgrpc/traces:
+    endpoint: ":8051"
+  otlphttp/traces:
+    endpoint: ":8052"
+  otlpgrpc/metrics:
+    endpoint: ":8053"
+  otlphttp/metrics:
+    endpoint: ":8054"
+
+processors:
+  spanmetrics:
+    dimensions: ["service.name","http.method","http.route","span.kind","status.code"]
+    histogram_buckets: [0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10]
+  summarizer:
+    window_seconds: 60
+  iforest:
+    features: ["p99","error_rate","rps"]
+    threshold: 0.7
+  vectorizer:
+    mode: "hash"
+    hash_dim: 384
+
+exporters:
+  weaviate:
+    endpoint: "http://localhost:8080"
+    class: "MiradorAggregate"
+
+pipelines:
+  traces:
+    receivers: [otlpgrpc/traces, otlphttp/traces]
+    processors: [spanmetrics, summarizer, iforest, vectorizer]
+    exporters: [weaviate]
+  metrics:
+    receivers: [otlpgrpc/metrics, otlphttp/metrics]
+    processors: [summarizer, iforest, vectorizer]
+    exporters: [weaviate]

@@ -5,7 +5,7 @@
 receivers:
   # OTLP gRPC (spec-compliant: traces/metrics/logs, gzip; TLS/mTLS)
   otlpgrpc:
-    endpoint: ":4317"
+    endpoint: ":8051"
     extra:
       reflection: true
       max_recv_msg_bytes: 16777216
@@ -23,7 +23,7 @@ receivers:
 
   # OTLP HTTP (spec-compliant: /v1/{traces,metrics,logs}, gzip; TLS/mTLS)
   otlphttp:
-    endpoint: ":4318"
+    endpoint: ":8052"
     extra:
       max_body_bytes: 16777216
       read_timeout_ms: 30000

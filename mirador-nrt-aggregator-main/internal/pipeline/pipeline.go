@@ -22,6 +22,7 @@ import (
 	"github.com/platformbuilds/mirador-nrt-aggregator/internal/processors/filter"
 	"github.com/platformbuilds/mirador-nrt-aggregator/internal/processors/iforest"
 	"github.com/platformbuilds/mirador-nrt-aggregator/internal/processors/logsum"
+	"github.com/platformbuilds/mirador-nrt-aggregator/internal/processors/otlplogs"
 	"github.com/platformbuilds/mirador-nrt-aggregator/internal/processors/spanmetrics"
 	"github.com/platformbuilds/mirador-nrt-aggregator/internal/processors/summarizer"
 	"github.com/platformbuilds/mirador-nrt-aggregator/internal/processors/vectorizer"
@@ -41,31 +42,99 @@ type Exporter interface {
 }
 
 // BuildAndRun builds all configured pipelines and runs them until ctx is canceled.
-// Each pipeline is built independently with its own goroutines.
+// Receivers that are referenced by multiple pipelines are started ONCE and
+// their output is fanned-out to every subscribing pipeline's channel.
 func BuildAndRun(ctx context.Context, cfg *config.Config) error {
 	// Build receiver/processor/exporter factories from config
 	rxFactory, err := buildReceivers(cfg)
 	if err != nil {
 		return err
 	}
-	procFactory, err := buildProcessors(cfg)
-	if err != nil {
-		return err
+
+	// ---- Phase 1: Start each receiver ONCE and set up fan-out ----
+	// Collect which pipelines subscribe to which receiver key.
+	type rxSub struct {
+		ch   chan model.Envelope
+		name string // pipeline name (for logging)
 	}
-	expFactory, err := buildExporters(cfg)
-	if err != nil {
-		return err
+	rxSubs := map[string][]rxSub{} // receiver key -> list of subscriber channels
+
+	// Prepare per-pipeline receiver input channels
+	pipelineInputs := map[string]chan model.Envelope{}
+	for pname, p := range cfg.Pipelines {
+		ch := make(chan model.Envelope, 64)
+		pipelineInputs[pname] = ch
+		for _, rkey := range p.Receivers {
+			rxSubs[rkey] = append(rxSubs[rkey], rxSub{ch: ch, name: pname})
+		}
 	}
 
+	// Start each receiver once with a shared output channel
+	for rkey, subs := range rxSubs {
+		r, ok := rxFactory[rkey]
+		if !ok {
+			return fmt.Errorf("receiver %q not found", rkey)
+		}
+		shared := make(chan model.Envelope, 64)
+		go func(label string, rr Receiver) {
+			if err := rr.Start(ctx, shared); err != nil {
+				log.Printf("[receiver:%s] error: %v", label, err)
+			}
+		}(rkey, r)
+
+		// Fan-out: broadcast from shared channel to all subscriber channels.
+		// Each subscriber gets a deep-copy of the Envelope bytes to prevent
+		// data races when multiple pipelines unmarshal the same protobuf slice.
+		go func(label string, subscribers []rxSub) {
+			for env := range shared {
+				for i, sub := range subscribers {
+					e := env
+					if i > 0 {
+						// Copy byte slice for all subscribers after the first
+						cp := make([]byte, len(env.Bytes))
+						copy(cp, env.Bytes)
+						e.Bytes = cp
+					}
+					select {
+					case sub.ch <- e:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+			// When the shared channel is closed, close all subscriber channels
+			for _, sub := range subscribers {
+				close(sub.ch)
+			}
+		}(rkey, subs)
+	}
+
+	// ---- Phase 2: Start each pipeline (processors + exporters) ----
+	// Each pipeline gets its OWN processor and exporter instances to avoid
+	// shared state / concurrent mutation (e.g. two summarizers writing to the
+	// same t-digest).
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(cfg.Pipelines))
 
 	for pname, p := range cfg.Pipelines {
 		pname, p := pname, p
+		rxCh := pipelineInputs[pname]
+
+		// Build fresh processor instances for this pipeline
+		pipelineProcs, err := buildProcessors(cfg)
+		if err != nil {
+			return err
+		}
+		// Build fresh exporter instances for this pipeline
+		pipelineExps, err := buildExporters(cfg)
+		if err != nil {
+			return err
+		}
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := runSinglePipeline(ctx, pname, p, rxFactory, procFactory, expFactory); err != nil {
+			if err := runSinglePipeline(ctx, pname, p, rxCh, pipelineProcs, pipelineExps); err != nil {
 				select {
 				case errCh <- fmt.Errorf("pipeline %q: %w", pname, err):
 				default:
@@ -83,7 +152,6 @@ func BuildAndRun(ctx context.Context, cfg *config.Config) error {
 		<-done
 		return nil
 	case err := <-errCh:
-		// cancel remaining work if any error occurs
 		<-done
 		return err
 	}
@@ -93,25 +161,13 @@ func runSinglePipeline(
 	ctx context.Context,
 	name string,
 	pl config.PipelineCfg,
-	rxFactory map[string]Receiver,
+	rxOut <-chan model.Envelope,
 	procFactory map[string]Processor,
 	expFactory map[string]Exporter,
 ) error {
 	log.Printf("[pipeline:%s] starting", name)
 
-	// Stage 1: Receivers
-	rxOut := make(chan model.Envelope)
-	for _, rkey := range pl.Receivers {
-		r, ok := rxFactory[rkey]
-		if !ok {
-			return fmt.Errorf("receiver %q not found", rkey)
-		}
-		go func(label string, rr Receiver) {
-			if err := rr.Start(ctx, rxOut); err != nil {
-				log.Printf("[receiver:%s] error: %v", label, err)
-			}
-		}(rkey, r)
-	}
+	// Receivers are already started by BuildAndRun; rxOut is our input channel.
 
 	// Stage 2..N: Processors
 	var inAny <-chan any = envelopeToAny(rxOut)
@@ -125,7 +181,6 @@ func runSinglePipeline(
 			if err := pp.Start(ctx, in, out); err != nil {
 				log.Printf("[processor:%s] error: %v", label, err)
 			}
-			close(out)
 		}(pkey, p, inAny, outAny)
 		inAny = outAny
 	}
@@ -268,6 +323,8 @@ func buildProcessors(cfg *config.Config) (map[string]Processor, error) {
 			p = vectorizer.New(pc)
 		case "logsum":
 			p = logsum.New(pc)
+		case "otlplogs":
+			p = otlplogs.New(pc)
 		case "filter":
 			p = filter.New(pc)
 		default:
